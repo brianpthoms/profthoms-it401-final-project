@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}About | Breakline Surf Forecasts{% endblock %}
+
+{% block content %}
+<section class="about-hero">
+    <div>
+        <p class="eyebrow"><span></span> About Breakline</p>
+        <h1>Better forecasts.<br><em>Better sessions.</em></h1>
+    </div>
+    <p class="about-intro">Breakline is a surf-planning app designed to make ocean conditions easier to understand—so surfers can choose the right spot, time their session, and arrive with confidence.</p>
+</section>
+
+<section class="about-story">
+    <div class="story-label">Our purpose</div>
+    <div class="story-copy">
+        <h2>The ocean is complex.<br>Your forecast shouldn’t be.</h2>
+        <p>Surf forecasts often scatter the information that matters across dense charts and separate data sources. Breakline brings swell height and direction, wind, tide, and timing into a single spot-specific outlook.</p>
+        <p>Our goal is not to replace a surfer’s judgment. It is to give that judgment a clearer starting point—whether you are planning a dawn patrol, learning your local break, or chasing the best window on a day off.</p>
+    </div>
+</section>
+
+<section class="values-section">
+    <p class="eyebrow eyebrow-dark"><span></span> What guides us</p>
+    <div class="values-grid">
+        <article><span>01</span><h3>Clarity over clutter</h3><p>We translate raw conditions into a forecast that is useful at a glance.</p></article>
+        <article><span>02</span><h3>Local context matters</h3><p>Every break responds differently. Forecasts should reflect the place.</p></article>
+        <article><span>03</span><h3>Respect the ocean</h3><p>Conditions change quickly. We encourage awareness, preparation, and sound judgment.</p></article>
+    </div>
+</section>
+
+<section class="about-cta">
+    <p class="eyebrow"><span></span> Your next session</p>
+    <h2>See what’s breaking.</h2>
+    <a class="button button-light" href="{{ url_for('index') }}#forecast">Build a forecast <span>→</span></a>
+</section>
+{% endblock %}

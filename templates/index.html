@@ -1,11 +1,88 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>IT401 Project</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <h1>It works!</h1>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Breakline | Your Next Best Session{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-content">
+        <p class="eyebrow"><span></span> Surf smarter</p>
+        <h1>Know when to<br><em>paddle out.</em></h1>
+        <p class="hero-copy">Clear, spot-specific surf outlooks that turn swell, wind, and tide into one simple answer.</p>
+        <a class="button button-primary" href="#forecast">Build my forecast <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+        <div class="sun"></div>
+        <div class="horizon"></div>
+        <div class="wave wave-back"></div>
+        <div class="wave wave-front"></div>
+        <div class="board"><span></span></div>
+        <p class="conditions-label">Dawn patrol<br><strong>06:18 AM</strong></p>
+    </div>
+</section>
+
+<section class="forecast-section" id="forecast">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow eyebrow-dark"><span></span> Session planner</p>
+            <h2>Find your window.</h2>
+        </div>
+        <p>Choose a break and a day. We’ll bring the conditions into focus.</p>
+    </div>
+
+    <form class="forecast-form" action="{{ url_for('index') }}#forecast" method="get">
+        <label>
+            <span>Surf spot</span>
+            <select name="spot">
+                {% for key, surf_spot in spots.items() %}
+                <option value="{{ key }}" {% if key == selected_spot %}selected{% endif %}>{{ surf_spot.name }} · {{ surf_spot.region }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <span>Forecast date</span>
+            <input type="date" name="date" min="{{ today }}" value="{{ forecast_date.isoformat() }}">
+        </label>
+        <button class="button button-coral" type="submit">Generate forecast <span aria-hidden="true">↗</span></button>
+    </form>
+
+    <article class="forecast-card">
+        <div class="forecast-overview">
+            <p class="demo-label">Demo outlook</p>
+            <p class="forecast-date">{{ forecast_date.strftime('%A · %B %d') }}</p>
+            <h3>{{ spot.name }}</h3>
+            <p class="region">{{ spot.region }}</p>
+            <div class="rating"><span></span>{{ spot.rating }} conditions</div>
+        </div>
+        <div class="wave-reading">
+            <span>Surf</span>
+            <strong>{{ spot.wave_height }}</strong>
+            <p>{{ spot.summary }}</p>
+        </div>
+        <dl class="condition-grid">
+            <div><dt>Swell</dt><dd>{{ spot.swell }}</dd></div>
+            <div><dt>Wind</dt><dd>{{ spot.wind }}</dd></div>
+            <div><dt>Tide</dt><dd>{{ spot.tide }}</dd></div>
+        </dl>
+    </article>
+    <p class="demo-note">This prototype uses sample conditions to demonstrate the forecast experience.</p>
+</section>
+
+<section class="promise-strip">
+    <p>One forecast.</p><span>•</span><p>Less second-guessing.</p><span>•</span><p>More good waves.</p>
+</section>
+
+<section class="how-it-works">
+    <div class="section-heading compact">
+        <div>
+            <p class="eyebrow eyebrow-dark"><span></span> Built for surfers</p>
+            <h2>Ocean data,<br>made human.</h2>
+        </div>
+        <a class="text-link" href="{{ url_for('about') }}">Why Breakline <span>→</span></a>
+    </div>
+    <div class="feature-grid">
+        <article><span class="feature-number">01</span><h3>Pick your break</h3><p>Start with the place you actually plan to surf, not a regional average.</p></article>
+        <article><span class="feature-number">02</span><h3>Read the window</h3><p>See swell, wind, and tide together in an outlook you can scan quickly.</p></article>
+        <article><span class="feature-number">03</span><h3>Make the call</h3><p>Spend less time comparing charts and more time getting to the water.</p></article>
+    </div>
+</section>
+{% endblock %}

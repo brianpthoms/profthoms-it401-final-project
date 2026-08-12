@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Breakline surf forecasts help surfers find their best window to paddle out.">
+    <title>{% block title %}Breakline Surf Forecasts{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="{{ url_for('index') }}" aria-label="Breakline home">
+            <span class="brand-mark" aria-hidden="true"><span></span></span>
+            <span>BREAKLINE</span>
+        </a>
+        <nav class="site-nav" aria-label="Main navigation">
+            <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Forecast</a>
+            <a href="{{ url_for('about') }}" {% if request.endpoint == 'about' %}aria-current="page"{% endif %}>About</a>
+        </nav>
+        <a class="nav-cta" href="{{ url_for('index') }}#forecast">Check the swell</a>
+    </header>
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <footer class="site-footer">
+        <a class="brand brand-light" href="{{ url_for('index') }}">
+            <span class="brand-mark" aria-hidden="true"><span></span></span>
+            <span>BREAKLINE</span>
+        </a>
+        <p>Plan the paddle. Catch the window.</p>
+        <p class="footer-note">Forecasts are for planning only. Always check local conditions.</p>
+    </footer>
+</body>
+</html>

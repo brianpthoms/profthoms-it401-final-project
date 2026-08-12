@@ -1,0 +1,32 @@
+{
+  "huntington": {
+    "name": "Huntington Beach",
+    "region": "Orange County, CA",
+    "wave_height": "3–5 ft",
+    "swell": "SW · 14 sec",
+    "wind": "4 mph NE",
+    "tide": "Rising · 3.2 ft",
+    "rating": "Good",
+    "summary": "Clean morning faces with consistent sets around the pier."
+  },
+  "trestles": {
+    "name": "Lower Trestles",
+    "region": "San Clemente, CA",
+    "wave_height": "4–6 ft",
+    "swell": "SSW · 16 sec",
+    "wind": "3 mph E",
+    "tide": "Mid · 2.8 ft",
+    "rating": "Epic",
+    "summary": "Long-period lines and light offshore wind favor the morning window."
+  },
+  "blacks": {
+    "name": "Black's Beach",
+    "region": "San Diego, CA",
+    "wave_height": "5–7 ft",
+    "swell": "W · 13 sec",
+    "wind": "5 mph ENE",
+    "tide": "Falling · 2.4 ft",
+    "rating": "Good",
+    "summary": "Powerful peaks with the best shape before the afternoon wind arrives."
+  }
+}
