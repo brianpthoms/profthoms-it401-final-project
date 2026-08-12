@@ -26,45 +26,88 @@
             <p class="eyebrow eyebrow-dark"><span></span> Session planner</p>
             <h2>Find your window.</h2>
         </div>
-        <p>Choose a break and a day. We’ll bring the conditions into focus.</p>
+        <p>Search by city and state or use exact coordinates. We’ll bring the conditions into focus.</p>
     </div>
 
     <form class="forecast-form" action="{{ url_for('index') }}#forecast" method="get">
         <label>
-            <span>Surf spot</span>
-            <select name="spot">
-                {% for key, surf_spot in spots.items() %}
-                <option value="{{ key }}" {% if key == selected_spot %}selected{% endif %}>{{ surf_spot.name }} · {{ surf_spot.region }}</option>
-                {% endfor %}
+            <span>Search by</span>
+            <select name="location_type" id="location-type">
+                <option value="city" {% if location_type == "city" %}selected{% endif %}>City &amp; state</option>
+                <option value="coordinates" {% if location_type == "coordinates" %}selected{% endif %}>Latitude &amp; longitude</option>
+                <option value="surf_spot" {% if location_type == "surf_spot" %}selected{% endif %}>Surf spot name</option>
             </select>
+        </label>
+        <label data-location-field="city" {% if location_type != "city" %}hidden{% endif %}>
+            <span>City</span>
+            <input type="text" name="city" value="{{ city }}" placeholder="Huntington Beach" maxlength="100" {% if location_type == "city" %}required{% endif %}>
+        </label>
+        <label data-location-field="city" {% if location_type != "city" %}hidden{% endif %}>
+            <span>State</span>
+            <input type="text" name="state" value="{{ state }}" placeholder="California" maxlength="100" {% if location_type == "city" %}required{% endif %}>
+        </label>
+        <label data-location-field="coordinates" {% if location_type != "coordinates" %}hidden{% endif %}>
+            <span>Latitude</span>
+            <input type="number" name="latitude" value="{{ latitude }}" placeholder="33.6553" min="-90" max="90" step="any" {% if location_type == "coordinates" %}required{% endif %}>
+        </label>
+        <label data-location-field="coordinates" {% if location_type != "coordinates" %}hidden{% endif %}>
+            <span>Longitude</span>
+            <input type="number" name="longitude" value="{{ longitude }}" placeholder="-118.0034" min="-180" max="180" step="any" {% if location_type == "coordinates" %}required{% endif %}>
+        </label>
+        <label data-location-field="surf_spot" {% if location_type != "surf_spot" %}hidden{% endif %}>
+            <span>Surf spot</span>
+            <input type="text" name="spot_name" value="{{ spot_name }}" placeholder="County Line" maxlength="100" {% if location_type == "surf_spot" %}required{% endif %}>
         </label>
         <label>
             <span>Forecast date</span>
-            <input type="date" name="date" min="{{ today }}" value="{{ forecast_date.isoformat() }}">
+            <input type="date" name="date" min="{{ today }}" max="{{ max_forecast_date }}" value="{{ forecast_date.isoformat() }}">
         </label>
         <button class="button button-coral" type="submit">Generate forecast <span aria-hidden="true">↗</span></button>
+        <div class="map-picker" data-location-field="coordinates surf_spot" {% if location_type not in ["coordinates", "surf_spot"] %}hidden{% endif %}>
+            <div class="map-picker-heading">
+                <div>
+                    <strong id="map-heading">{{ "Resolved surf spot" if location_type == "surf_spot" else "Choose a forecast point" }}</strong>
+                    <p id="map-help">{{ "Verify the OpenStreetMap location used for this forecast." if location_type == "surf_spot" else "Click the map or drag the marker to set the coordinates." }}</p>
+                </div>
+                <output id="map-coordinates" aria-live="polite"></output>
+            </div>
+            <div id="forecast-map" role="region" aria-label="Interactive forecast location map"></div>
+        </div>
     </form>
 
     <article class="forecast-card">
         <div class="forecast-overview">
-            <p class="demo-label">Demo outlook</p>
+            <p class="demo-label">{{ "Live outlook" if forecast_source == "live" else "Marine outlook" }}</p>
             <p class="forecast-date">{{ forecast_date.strftime('%A · %B %d') }}</p>
-            <h3>{{ spot.name }}</h3>
-            <p class="region">{{ spot.region }}</p>
-            <div class="rating"><span></span>{{ spot.rating }} conditions</div>
+            <h3>{{ location_name }}</h3>
+            <p class="region">{{ location_region }}</p>
+            <div class="rating"><span></span>{{ forecast.rating }} conditions</div>
         </div>
         <div class="wave-reading">
             <span>Surf</span>
-            <strong>{{ spot.wave_height }}</strong>
-            <p>{{ spot.summary }}</p>
+            <strong>{{ forecast.wave_height }}</strong>
+            <p>{{ forecast.summary }}</p>
         </div>
         <dl class="condition-grid">
-            <div><dt>Swell</dt><dd>{{ spot.swell }}</dd></div>
-            <div><dt>Wind</dt><dd>{{ spot.wind }}</dd></div>
-            <div><dt>Tide</dt><dd>{{ spot.tide }}</dd></div>
+            {% for condition in forecast.conditions %}
+            <div><dt>{{ condition.label }}</dt><dd>{{ condition.value }}</dd></div>
+            {% endfor %}
         </dl>
+        {% if wikipedia_summary %}
+        <aside class="spot-context">
+            <p class="spot-context-label">About this surf spot</p>
+            <h4>{{ wikipedia_summary.title }}</h4>
+            <p>{{ wikipedia_summary.extract }}</p>
+            <a href="{{ wikipedia_summary.url }}" target="_blank" rel="noopener">Read more on Wikipedia <span aria-hidden="true">↗</span></a>
+        </aside>
+        {% endif %}
     </article>
-    <p class="demo-note">This prototype uses sample conditions to demonstrate the forecast experience.</p>
+    <p class="demo-note">
+        {{ forecast_message }}
+        {% if location_attribution %}
+        Spot location © <a href="{{ osm_url }}" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
+        {% endif %}
+    </p>
 </section>
 
 <section class="promise-strip">

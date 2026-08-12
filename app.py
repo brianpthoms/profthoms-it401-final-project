@@ -1,6 +1,10 @@
 import os
 
 from flask import Flask
+from dotenv import load_dotenv
+
+# Load local development secrets before the configuration module reads them.
+load_dotenv()
 
 from config import config
 from routes.main import register_routes

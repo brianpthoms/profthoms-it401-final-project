@@ -2,6 +2,8 @@
   "huntington": {
     "name": "Huntington Beach",
     "region": "Orange County, CA",
+    "latitude": 33.6553,
+    "longitude": -118.0034,
     "wave_height": "3–5 ft",
     "swell": "SW · 14 sec",
     "wind": "4 mph NE",
@@ -12,6 +14,8 @@
   "trestles": {
     "name": "Lower Trestles",
     "region": "San Clemente, CA",
+    "latitude": 33.3817,
+    "longitude": -117.5889,
     "wave_height": "4–6 ft",
     "swell": "SSW · 16 sec",
     "wind": "3 mph E",
@@ -22,6 +26,8 @@
   "blacks": {
     "name": "Black's Beach",
     "region": "San Diego, CA",
+    "latitude": 32.8899,
+    "longitude": -117.2532,
     "wave_height": "5–7 ft",
     "swell": "W · 13 sec",
     "wind": "5 mph ENE",

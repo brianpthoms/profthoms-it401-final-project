@@ -60,9 +60,16 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 40px; margin-bottom: 45px; }
 .section-heading h2, .about-story h2 { margin: 0; font-size: clamp(38px, 4vw, 58px); line-height: 1.05; letter-spacing: -.04em; }
 .section-heading > p { max-width: 390px; margin: 0; color: var(--ink-soft); line-height: 1.65; }
-.forecast-form { display: grid; grid-template-columns: 1.3fr .8fr auto; gap: 15px; padding: 22px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.forecast-form { display: grid; grid-template-columns: .8fr 1fr .8fr .8fr auto; gap: 15px; padding: 22px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.forecast-form [hidden] { display: none; }
 .forecast-form label span { display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--ink-soft); }
 .forecast-form select, .forecast-form input { width: 100%; height: 56px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); color: var(--ink); padding: 0 15px; }
+.map-picker { grid-column: 1 / -1; margin-top: 7px; }
+.map-picker-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 12px; }
+.map-picker-heading strong { font: 700 14px "Manrope", sans-serif; }
+.map-picker-heading p { margin: 4px 0 0; color: var(--ink-soft); font-size: 12px; }
+#map-coordinates { color: var(--ocean-dark); font-size: 12px; font-weight: 700; }
+#forecast-map { width: 100%; height: 360px; border: 1px solid var(--line); z-index: 0; }
 .forecast-card { margin-top: 25px; display: grid; grid-template-columns: 1fr 1fr 1.2fr; min-height: 245px; background: var(--ink); color: white; }
 .forecast-card > div { padding: 36px; }
 .forecast-overview { background: var(--ocean-dark); }
@@ -79,6 +86,11 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .condition-grid div { padding: 27px 30px; border-bottom: 1px solid rgba(255,255,255,.12); }
 .condition-grid div:last-child { grid-column: 1 / -1; border-bottom: 0; }
 .condition-grid dd { margin: 9px 0 0; font: 700 18px "Manrope"; }
+.spot-context { grid-column: 1 / -1; padding: 30px 36px 34px; border-top: 1px solid rgba(255,255,255,.12); background: #102f4d; }
+.spot-context-label { margin: 0 0 8px; color: #a8ddf0; text-transform: uppercase; letter-spacing: .14em; font-size: 10px; font-weight: 700; }
+.spot-context h4 { margin: 0 0 10px; font: 700 18px "Manrope", sans-serif; }
+.spot-context > p:not(.spot-context-label) { max-width: 920px; margin: 0 0 14px; color: rgba(255,255,255,.7); font-size: 13px; line-height: 1.7; }
+.spot-context a { color: #a8ddf0; font-size: 12px; font-weight: 700; }
 .demo-note { color: var(--ink-soft); font-size: 12px; text-align: right; }
 .promise-strip { padding: 30px 5vw; display: flex; justify-content: center; gap: 30px; background: #096f9f; color: white; font: 700 clamp(18px, 2vw, 27px) "Manrope"; }
 .promise-strip p { margin: 0; }
@@ -133,6 +145,8 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
     .section-heading > p { margin-top: 20px; }
     .forecast-section, .how-it-works, .about-story, .values-section { padding: 75px 24px; }
     .forecast-form { padding: 15px; }
+    .map-picker-heading { align-items: start; flex-direction: column; }
+    #forecast-map { height: 300px; }
     .feature-grid, .values-grid { grid-template-columns: 1fr; }
     .feature-grid article, .values-grid article, .feature-grid article + article, .values-grid article + article { padding: 30px 0; border-right: 0; border-bottom: 1px solid var(--line); }
     .feature-grid h3, .values-grid h3 { margin-top: 25px; }
