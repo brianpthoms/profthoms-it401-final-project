@@ -60,9 +60,35 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 40px; margin-bottom: 45px; }
 .section-heading h2, .about-story h2 { margin: 0; font-size: clamp(38px, 4vw, 58px); line-height: 1.05; letter-spacing: -.04em; }
 .section-heading > p { max-width: 390px; margin: 0; color: var(--ink-soft); line-height: 1.65; }
-.forecast-form { display: grid; grid-template-columns: 1.3fr .8fr auto; gap: 15px; padding: 22px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.lookup-switch { margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; border: 0; }
+.lookup-switch legend { margin-bottom: 12px; color: var(--ink-soft); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.lookup-switch label { min-height: 78px; padding: 17px 20px; display: flex; align-items: center; gap: 13px; border: 1px solid var(--line); background: white; cursor: pointer; }
+.lookup-switch label:has(input:checked) { border-color: var(--ocean); box-shadow: inset 0 0 0 1px var(--ocean); background: var(--foam); }
+.lookup-switch input { accent-color: var(--ocean); }
+.lookup-switch span { display: grid; gap: 4px; }
+.lookup-switch strong { font-size: 14px; }
+.lookup-switch small { color: var(--ink-soft); font-size: 12px; }
+.location-picker { overflow: hidden; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.map-heading { min-height: 112px; padding: 25px 28px; display: flex; align-items: center; justify-content: space-between; gap: 40px; }
+.map-heading h3 { margin: 5px 0 0; font-size: 23px; }
+.map-heading > p { max-width: 410px; margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
+.map-step { margin: 0; color: var(--coral); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+#location-map { height: 410px; background: #cfe8f2; cursor: crosshair; }
+#location-map .leaflet-marker-icon { cursor: grab; }
+#location-map .leaflet-marker-icon:active { cursor: grabbing; }
+.map-fallback { margin: 0; padding: 16px 22px; color: #7a2b1b; background: #fff0ec; }
+.city-picker { min-height: 230px; padding: 38px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 60px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.city-picker[hidden], .location-picker[hidden] { display: none; }
+.city-picker h3 { margin: 8px 0 10px; font-size: 26px; }
+.city-picker p:last-child { max-width: 520px; margin: 0; color: var(--ink-soft); line-height: 1.6; }
+.city-picker label > span { display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--ink-soft); }
+.city-picker input { width: 100%; height: 60px; padding: 0 16px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.forecast-form { display: grid; grid-template-columns: .8fr .8fr 1fr auto; gap: 15px; padding: 22px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.forecast-form.city-mode { grid-template-columns: 1fr auto; }
+.forecast-form.city-mode .coordinate-field { display: none; }
 .forecast-form label span { display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--ink-soft); }
 .forecast-form select, .forecast-form input { width: 100%; height: 56px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); color: var(--ink); padding: 0 15px; }
+.coordinate-status { margin: 10px 3px 0; color: var(--ink-soft); font-size: 12px; }
 .forecast-card { margin-top: 25px; display: grid; grid-template-columns: 1fr 1fr 1.2fr; min-height: 245px; background: var(--ink); color: white; }
 .forecast-card > div { padding: 36px; }
 .forecast-overview { background: var(--ocean-dark); }
@@ -77,9 +103,18 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .wave-reading p { margin: 0; color: rgba(255,255,255,.66); font-size: 13px; line-height: 1.6; }
 .condition-grid { margin: 0; display: grid; grid-template-columns: 1fr 1fr; }
 .condition-grid div { padding: 27px 30px; border-bottom: 1px solid rgba(255,255,255,.12); }
-.condition-grid div:last-child { grid-column: 1 / -1; border-bottom: 0; }
+.condition-grid div:nth-last-child(-n + 2) { border-bottom: 0; }
 .condition-grid dd { margin: 9px 0 0; font: 700 18px "Manrope"; }
 .demo-note { color: var(--ink-soft); font-size: 12px; text-align: right; }
+.forecast-alert { margin-top: 24px; padding: 18px 20px; border-left: 4px solid var(--coral); background: #fff0ec; color: #7a2b1b; }
+.forecast-empty { margin-top: 25px; padding: 46px; border: 1px dashed var(--line); background: var(--foam); text-align: center; }
+.forecast-empty .eyebrow { margin-bottom: 16px; }
+.forecast-empty h3 { margin: 0 0 10px; font-size: 26px; }
+.forecast-empty > p:last-child { margin: 0; color: var(--ink-soft); }
+.spot-story { margin-top: 42px; padding: 42px; display: grid; grid-template-columns: .65fr 1.35fr; gap: 55px; border-top: 4px solid var(--ocean); background: white; box-shadow: 0 18px 60px rgba(11,43,75,.09); }
+.spot-story h3 { margin: 0; font-size: 28px; }
+.spot-story > div:last-child > p:first-child { margin: 0 0 24px; color: var(--ink-soft); font-size: 16px; line-height: 1.75; }
+.source-note { margin: 22px 0 0; color: var(--ink-soft); font-size: 10px; line-height: 1.5; }
 .promise-strip { padding: 30px 5vw; display: flex; justify-content: center; gap: 30px; background: #096f9f; color: white; font: 700 clamp(18px, 2vw, 27px) "Manrope"; }
 .promise-strip p { margin: 0; }
 .promise-strip > span { color: var(--coral); }
@@ -133,6 +168,10 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
     .section-heading > p { margin-top: 20px; }
     .forecast-section, .how-it-works, .about-story, .values-section { padding: 75px 24px; }
     .forecast-form { padding: 15px; }
+    .lookup-switch, .city-picker, .spot-story { grid-template-columns: 1fr; }
+    .city-picker { gap: 28px; padding: 28px; }
+    .map-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+    #location-map { height: 340px; }
     .feature-grid, .values-grid { grid-template-columns: 1fr; }
     .feature-grid article, .values-grid article, .feature-grid article + article, .values-grid article + article { padding: 30px 0; border-right: 0; border-bottom: 1px solid var(--line); }
     .feature-grid h3, .values-grid h3 { margin-top: 25px; }
@@ -141,10 +180,124 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
     .about-intro { margin-top: 20px; }
     .about-story { grid-template-columns: 1fr; }
     .condition-grid { grid-template-columns: 1fr; }
-    .condition-grid div:last-child { grid-column: auto; }
+    .condition-grid div:nth-last-child(-n + 2) { border-bottom: 1px solid rgba(255,255,255,.12); }
+    .condition-grid div:last-child { border-bottom: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     *, *::before, *::after { transition: none !important; }
+}
+
+/* Dark editorial direction inspired by the Breakline dashboard reference. */
+:root {
+    --ink: #062947;
+    --ink-soft: #597489;
+    --ocean: #083f69;
+    --ocean-dark: #042c4d;
+    --cyan: #29b6ed;
+    --mint: #2ed1aa;
+    --coral: #ff704f;
+    --paper: #f4f8fa;
+}
+
+.site-header {
+    height: 90px;
+    color: white;
+    background: #062d4d;
+    border-bottom-color: rgba(255,255,255,.09);
+}
+.brand-mark::before, .brand-mark span { border-top-color: var(--cyan); border-left-color: var(--cyan); }
+.site-nav a:hover, .site-nav a[aria-current="page"] { color: white; border-bottom-color: var(--coral); }
+.nav-cta { padding: 15px 24px; border-color: rgba(255,255,255,.7); }
+.nav-cta:hover { background: white; color: var(--ink); }
+
+.hero {
+    position: relative;
+    min-height: 650px;
+    grid-template-columns: 1.02fr .98fr;
+    background:
+        radial-gradient(circle at 68% 36%, rgba(24,135,193,.18), transparent 28%),
+        linear-gradient(120deg, #062d4d, #06426f);
+}
+.hero::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 45%;
+    opacity: .18;
+    background-image:
+        repeating-radial-gradient(ellipse at 60% 45%, transparent 0 28px, rgba(61,179,229,.22) 29px 30px, transparent 31px 48px);
+    pointer-events: none;
+}
+.hero-content { padding: 105px clamp(42px, 5.5vw, 88px); }
+.hero h1 { max-width: 650px; font-size: clamp(58px, 6vw, 92px); line-height: .98; }
+.hero h1 em { color: var(--cyan); }
+.hero-copy { max-width: 590px; color: rgba(255,255,255,.8); }
+.button-primary, .button-coral { background: var(--coral); box-shadow: 0 8px 25px rgba(255,112,79,.18); }
+.button-primary { min-width: 250px; min-height: 62px; justify-content: space-between; }
+
+.hero-dashboard {
+    position: relative;
+    z-index: 2;
+    align-self: center;
+    margin: 65px clamp(42px, 6vw, 95px) 100px 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.hero-stat-card {
+    position: relative;
+    min-height: 177px;
+    padding: 27px;
+    overflow: hidden;
+    background: linear-gradient(145deg, rgba(18,76,119,.95), rgba(12,61,98,.85));
+    border: 1px solid rgba(105,194,235,.08);
+    border-radius: 12px;
+    box-shadow: 0 12px 24px rgba(0,17,32,.16);
+}
+.hero-stat-card > span { display: block; color: rgba(255,255,255,.58); font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.hero-stat-card strong { display: block; margin: 15px 0 8px; color: white; font: 700 27px "Manrope"; }
+.hero-stat-card strong small { color: rgba(255,255,255,.6); font-size: 13px; text-transform: uppercase; }
+.hero-stat-card em { color: #56c7f2; font-style: normal; font-weight: 700; }
+.hero-stat-card svg { position: absolute; inset: auto 0 0; width: 100%; height: 73px; }
+.hero-stat-card svg path { fill: rgba(58,167,219,.23); stroke: rgba(82,195,240,.62); stroke-width: 1.5; }
+.hero-stat-card svg line { stroke: white; stroke-width: 2; filter: drop-shadow(0 0 7px var(--cyan)); }
+.wind-stat b, .outlook-stat b { position: absolute; right: 24px; bottom: 42px; color: white; font-size: 30px; }
+.wind-stat b { width: 60px; height: 60px; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle, rgba(50,170,220,.22), transparent 70%); }
+.outlook-stat strong { color: var(--mint); font-size: 18px; }
+.outlook-stat b { width: 45px; height: 45px; display: grid; place-items: center; border-radius: 50%; background: var(--mint); font-size: 22px; }
+.conditions-label { right: 4px; bottom: -68px; }
+
+.forecast-section { background: #eef4f7; }
+.section-heading h2 { color: var(--ink); }
+.lookup-switch label, .location-picker, .city-picker, .forecast-form { border-radius: 8px; }
+.lookup-switch label:has(input:checked) { color: white; border-color: #0b5b8d; background: var(--ocean-dark); box-shadow: inset 0 0 0 1px rgba(43,182,237,.3); }
+.lookup-switch label:has(input:checked) small { color: rgba(255,255,255,.62); }
+.map-heading { color: white; background: var(--ocean-dark); }
+.map-heading > p { color: rgba(255,255,255,.62); }
+.forecast-form { grid-template-columns: 1fr auto; border-radius: 0 0 8px 8px; }
+.forecast-form.city-mode { grid-template-columns: 1fr auto; }
+.coordinate-field { display: none !important; }
+.coordinate-status { margin: 0; padding: 14px 20px; color: #cbeeff; background: #0b527f; border-radius: 0 0 8px 8px; font-size: 13px; }
+.forecast-card { overflow: hidden; border-radius: 10px; background: #073a60; box-shadow: 0 24px 60px rgba(5,42,72,.18); }
+.forecast-overview { background: #052e4e; }
+.wave-reading strong { color: var(--cyan); }
+.demo-label { color: white; background: var(--coral); }
+.condition-grid div { background: linear-gradient(145deg, rgba(14,75,116,.92), rgba(9,57,91,.8)); }
+.rating span { background: var(--mint); }
+.spot-story { border-top-color: var(--cyan); }
+.promise-strip { background: #073b62; }
+.site-footer { background: #041f35; }
+
+@media (max-width: 1050px) {
+    .hero { grid-template-columns: 1fr; }
+    .hero-dashboard { margin: 0 clamp(24px, 8vw, 90px) 110px; }
+}
+
+@media (max-width: 650px) {
+    .hero-content { padding: 75px 24px 55px; }
+    .hero-dashboard { margin: 0 24px 100px; grid-template-columns: 1fr; }
+    .hero-stat-card { min-height: 150px; }
+    .forecast-form, .forecast-form.city-mode { grid-template-columns: 1fr; }
+    .spot-story { padding: 28px; }
 }

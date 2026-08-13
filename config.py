@@ -1,5 +1,10 @@
 import os
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -10,6 +15,13 @@ class Config:
     # External API keys / service config
     API_KEY = os.environ.get("API_KEY")
     AI_SERVICE_API_KEY = os.environ.get("AI_SERVICE_API_KEY")
+    APIFREAKS_API_KEY = os.environ.get("APIFREAKS_API_KEY")
+    APIFREAKS_BASE_URL = os.environ.get(
+        "APIFREAKS_BASE_URL", "https://api.apifreaks.com/v1.0"
+    )
+    WIKIPEDIA_BASE_URL = os.environ.get(
+        "WIKIPEDIA_BASE_URL", "https://en.wikipedia.org"
+    )
 
 
 class DevelopmentConfig(Config):
