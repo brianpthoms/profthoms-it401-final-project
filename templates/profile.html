@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile | Breakline{% endblock %}
+
+{% block content %}
+<section class="profile-hero">
+    <div class="profile-identity">
+        {% if current_user.avatar_url %}
+        <img src="{{ current_user.avatar_url }}" alt="" referrerpolicy="no-referrer">
+        {% endif %}
+        <div>
+            <p class="eyebrow"><span></span> Surfer profile</p>
+            <h1>{{ current_user.display_name }}</h1>
+            <p>{{ current_user.email }}</p>
+        </div>
+    </div>
+    <a class="button button-light" href="{{ url_for('index') }}#forecast">Check another forecast <span>→</span></a>
+</section>
+
+<section class="profile-history">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow eyebrow-dark"><span></span> Your activity</p>
+            <h2>Forecast history.</h2>
+        </div>
+        <p>Your latest 100 successful forecast requests are shown here.</p>
+    </div>
+
+    {% if history %}
+    <div class="history-table-wrap">
+        <table class="history-table">
+            <thead>
+                <tr><th>Surf spot</th><th>Forecast time</th><th>Requested</th><th>Lookup</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for item in history %}
+                <tr>
+                    <td>{% if item.forecast %}<a class="history-location" href="{{ url_for('history_forecast', request_id=item.id) }}"><strong>{{ item.surf_break_name or (item.beach.name if item.beach else item.requested_location or 'Unknown location') }}</strong></a>{% else %}<strong>{{ item.requested_location or 'Unknown location' }}</strong>{% endif %}</td>
+                    <td>{% if item.forecast %}{{ item.forecast.forecast_date.strftime('%b %d, %Y') }} · {{ '%02d:00'|format(item.forecast.forecast_hour) }}{% else %}Unavailable{% endif %}</td>
+                    <td>{{ item.requested_at.strftime('%b %d, %Y · %I:%M %p') }}</td>
+                    <td>{{ item.lookup_mode|title }}</td>
+                    <td>{% if item.forecast %}<a class="history-view" href="{{ url_for('history_forecast', request_id=item.id) }}">View forecast <span aria-hidden="true">→</span></a>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="forecast-empty">
+        <h3>No forecast requests yet.</h3>
+        <p>Run a forecast while signed in and it will appear here.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

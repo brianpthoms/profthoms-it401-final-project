@@ -1,0 +1,34 @@
+<article class="forecast-card">
+    <div class="forecast-overview">
+        <p class="demo-label">APIFreaks forecast</p>
+        <p class="forecast-date">{{ forecast_date.strftime('%A · %B %d') }} · {{ forecast_time.strftime('%-I:00 %p') }}</p>
+        <h3>{{ forecast.place_name }}</h3>
+        <p class="region">{% if forecast.surf_break %}Near {{ forecast.area_name }}{% else %}Marine conditions for the selected area{% endif %}</p>
+        <div class="rating"><span></span>Hourly marine outlook</div>
+    </div>
+    <div class="wave-reading">
+        <span>Wave height</span>
+        <strong>{{ forecast.wave_height }}</strong>
+        <p>Dominant direction: {{ forecast.wave_direction }}.</p>
+    </div>
+    <dl class="condition-grid">
+        <div><dt>Wave period</dt><dd>{{ forecast.wave_period }}</dd></div>
+        <div><dt>Swell</dt><dd>{{ forecast.swell }}</dd></div>
+        <div><dt>Swell period</dt><dd>{{ forecast.swell_period }}</dd></div>
+        <div><dt>Wind wave</dt><dd>{{ forecast.wind_wave }}</dd></div>
+    </dl>
+</article>
+<p class="demo-note">Marine forecast data provided by APIFreaks. Wave heights are converted to feet.</p>
+{% if wikipedia_info %}
+<article class="spot-story">
+    <div>
+        <p class="eyebrow eyebrow-dark"><span></span> Know the break</p>
+        <h3>{{ wikipedia_info.title }}</h3>
+    </div>
+    <div>
+        <p>{{ wikipedia_info.summary }}</p>
+        <a class="text-link" href="{{ wikipedia_info.url }}" target="_blank" rel="noopener noreferrer">Read the Wikipedia article <span aria-hidden="true">↗</span></a>
+        <p class="source-note">Source: Wikipedia contributors. Text is available under <a href="{{ wikipedia_info.license_url or 'https://creativecommons.org/licenses/by-sa/4.0/' }}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a> and has been shortened for display.</p>
+    </div>
+</article>
+{% endif %}

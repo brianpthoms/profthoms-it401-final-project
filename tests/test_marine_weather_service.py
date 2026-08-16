@@ -90,3 +90,64 @@ def test_location_forecast_sends_location_instead_of_coordinates(monkeypatch):
     assert captured["location"] == "Santa Cruz, California"
     assert "lat" not in captured
     assert "long" not in captured
+
+
+def test_hourly_forecast_selects_requested_hour(monkeypatch):
+    requested_date = date(2026, 8, 13)
+    payload = {
+        "location": {"city": "Huntington Beach"},
+        "forecast": {
+            requested_date.isoformat(): {
+                "hourly": [
+                    {
+                        "timestamp": "2026-08-13T06:00",
+                        "wave_height": 1.4,
+                        "wave_direction": 225,
+                        "wave_period": 11,
+                        "swell_wave_height": 1.2,
+                        "swell_wave_direction": 220,
+                        "swell_wave_period": 13,
+                        "wind_wave_height": 0.2,
+                    },
+                    {"timestamp": "2026-08-13T07:00", "wave_height": 1.6},
+                ]
+            }
+        },
+    }
+    captured = {}
+
+    def fake_get(url, headers, params, timeout):
+        captured.update(params)
+        return FakeResponse(payload)
+
+    monkeypatch.setattr("services.marine_weather_service.requests.get", fake_get)
+    result = MarineWeatherService("secret-key").get_hourly_forecast(
+        33.65, -117.99, requested_date, 6
+    )
+
+    assert captured["precision"] == "hourly"
+    assert result["conditions"] == {
+        "timestamp": "2026-08-13T06:00",
+        "wave_height_max": 1.4,
+        "wave_direction_dominant": 225,
+        "wave_period_max": 11,
+        "swell_wave_height_max": 1.2,
+        "swell_wave_direction_dominant": 220,
+        "swell_wave_period_max": 13,
+        "wind_wave_height_max": 0.2,
+    }
+
+
+def test_hourly_forecast_reports_missing_hour(monkeypatch):
+    requested_date = date(2026, 8, 13)
+    monkeypatch.setattr(
+        "services.marine_weather_service.requests.get",
+        lambda *args, **kwargs: FakeResponse(
+            {"forecast": {requested_date.isoformat(): {"hourly": []}}}
+        ),
+    )
+
+    with pytest.raises(MarineWeatherError, match="location and hour"):
+        MarineWeatherService("secret-key").get_hourly_forecast(
+            33.65, -117.99, requested_date, 6
+        )

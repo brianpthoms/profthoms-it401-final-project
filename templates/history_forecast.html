@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Saved Forecast | Breakline{% endblock %}
+
+{% block content %}
+<section class="saved-forecast">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow eyebrow-dark"><span></span> Forecast history</p>
+            <h2>Saved conditions.</h2>
+        </div>
+        <a class="text-link" href="{{ url_for('profile') }}">Back to profile <span>→</span></a>
+    </div>
+    {% include "_forecast_report.html" %}
+</section>
+{% endblock %}

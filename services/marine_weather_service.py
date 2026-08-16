@@ -19,7 +19,70 @@ class MarineWeatherService:
     def get_daily_forecast_by_location(self, location, forecast_date):
         return self._get_daily_forecast({"location": location}, forecast_date)
 
+    def get_hourly_forecast(self, latitude, longitude, forecast_date, forecast_hour):
+        return self._get_hourly_forecast(
+            {"lat": latitude, "long": longitude}, forecast_date, forecast_hour
+        )
+
+    def get_hourly_forecast_by_location(
+        self, location, forecast_date, forecast_hour
+    ):
+        return self._get_hourly_forecast(
+            {"location": location}, forecast_date, forecast_hour
+        )
+
     def _get_daily_forecast(self, location_params, forecast_date):
+        payload = self._request_forecast(location_params, forecast_date, "daily")
+        daily = (
+            payload.get("forecast", {})
+            .get(forecast_date.isoformat(), {})
+            .get("daily")
+        )
+        if not daily:
+            raise MarineWeatherError(
+                "No wave conditions were returned for that location and date."
+            )
+
+        return {"location": payload.get("location", {}), "conditions": daily}
+
+    def _get_hourly_forecast(self, location_params, forecast_date, forecast_hour):
+        payload = self._request_forecast(location_params, forecast_date, "hourly")
+        hourly = (
+            payload.get("forecast", {})
+            .get(forecast_date.isoformat(), {})
+            .get("hourly", [])
+        )
+        timestamp_prefix = f"{forecast_date.isoformat()}T{forecast_hour:02d}:"
+        selected = next(
+            (
+                conditions
+                for conditions in hourly
+                if str(conditions.get("timestamp", "")).startswith(timestamp_prefix)
+            ),
+            None,
+        )
+        if not selected:
+            raise MarineWeatherError(
+                "No wave conditions were returned for that location and hour."
+            )
+
+        return {
+            "location": payload.get("location", {}),
+            "conditions": {
+                "timestamp": selected.get("timestamp"),
+                "wave_height_max": selected.get("wave_height"),
+                "wave_direction_dominant": selected.get("wave_direction"),
+                "wave_period_max": selected.get("wave_period"),
+                "swell_wave_height_max": selected.get("swell_wave_height"),
+                "swell_wave_direction_dominant": selected.get(
+                    "swell_wave_direction"
+                ),
+                "swell_wave_period_max": selected.get("swell_wave_period"),
+                "wind_wave_height_max": selected.get("wind_wave_height"),
+            },
+        }
+
+    def _request_forecast(self, location_params, forecast_date, precision):
         if not self.api_key:
             raise MarineWeatherError(
                 "Marine forecasts are not configured yet. Add an APIFREAKS_API_KEY to the server environment."
@@ -29,7 +92,7 @@ class MarineWeatherService:
             **location_params,
             "startDate": forecast_date.isoformat(),
             "endDate": forecast_date.isoformat(),
-            "precision": "daily",
+            "precision": precision,
         }
 
         try:
@@ -61,14 +124,4 @@ class MarineWeatherService:
                 "The marine forecast service is currently unavailable. Please try again."
             ) from exc
 
-        daily = (
-            payload.get("forecast", {})
-            .get(forecast_date.isoformat(), {})
-            .get("daily")
-        )
-        if not daily:
-            raise MarineWeatherError(
-                "No wave conditions were returned for that location and date."
-            )
-
-        return {"location": payload.get("location", {}), "conditions": daily}
+        return payload

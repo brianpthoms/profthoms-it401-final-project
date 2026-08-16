@@ -1,9 +1,18 @@
 from datetime import date, datetime, timedelta
 
 from flask import render_template, request
+from flask_login import current_user
+from sqlalchemy.exc import SQLAlchemyError
 
+from models import db
+from services.forecast_repository import save_forecast
 from services.marine_weather_service import MarineWeatherError, MarineWeatherService
-from services.wikipedia_scraper import WikipediaScraper
+from services.request_history_repository import track_forecast_request
+from services.wikipedia_service import WikipediaService
+from services.wikipedia_repository import (
+    get_cached_wikipedia_info,
+    save_wikipedia_info,
+)
 
 
 def parse_coordinate(raw_value, label, minimum, maximum):
@@ -60,11 +69,15 @@ def present_forecast(raw_forecast):
 
 
 def register_routes(app):
-    wikipedia_scraper = WikipediaScraper(base_url=app.config["WIKIPEDIA_BASE_URL"])
+    wikipedia_service = WikipediaService(
+        base_url=app.config["WIKIPEDIA_BASE_URL"],
+        user_agent=app.config["WIKIPEDIA_USER_AGENT"],
+    )
 
     @app.route("/")
     def index():
         requested_date = request.args.get("date", date.today().isoformat())
+        requested_time = request.args.get("time", f"{datetime.now().hour:02d}:00")
         max_date = date.today() + timedelta(days=16)
         error = None
         forecast = None
@@ -76,6 +89,14 @@ def register_routes(app):
             forecast_date = date.today()
             error = "Enter a valid forecast date."
 
+        try:
+            forecast_time = datetime.strptime(requested_time, "%H:%M").time()
+            if forecast_time.minute != 0:
+                raise ValueError
+        except ValueError:
+            forecast_time = datetime.now().replace(minute=0).time()
+            error = error or "Choose a forecast time on the hour."
+
         latitude_input = request.args.get("latitude", "33.6595")
         longitude_input = request.args.get("longitude", "-117.9988")
         location_input = request.args.get("location", "")
@@ -85,7 +106,11 @@ def register_routes(app):
         if lookup_mode not in ("coordinates", "location"):
             lookup_mode = "coordinates"
 
-        if "lookup" in request.args or "latitude" in request.args or "longitude" in request.args:
+        if error is None and (
+            "lookup" in request.args
+            or "latitude" in request.args
+            or "longitude" in request.args
+        ):
             try:
                 if not date.today() <= forecast_date <= max_date:
                     raise ValueError(
@@ -103,16 +128,16 @@ def register_routes(app):
                         raise ValueError("Enter a city or place name.")
                     if len(location) > 150:
                         raise ValueError("City or place name must be 150 characters or fewer.")
-                    raw_forecast = service.get_daily_forecast_by_location(
-                        location, forecast_date
+                    raw_forecast = service.get_hourly_forecast_by_location(
+                        location, forecast_date, forecast_time.hour
                     )
                 else:
                     latitude = parse_coordinate(latitude_input, "Latitude", -90, 90)
                     longitude = parse_coordinate(longitude_input, "Longitude", -180, 180)
                     if len(surf_break_name) > 150:
                         raise ValueError("Surf break name must be 150 characters or fewer.")
-                    raw_forecast = service.get_daily_forecast(
-                        latitude, longitude, forecast_date
+                    raw_forecast = service.get_hourly_forecast(
+                        latitude, longitude, forecast_date, forecast_time.hour
                     )
 
                 forecast = present_forecast(raw_forecast)
@@ -125,10 +150,85 @@ def register_routes(app):
                     forecast["place_name"] = surf_break_name
                     forecast["surf_break"] = True
 
-                wikipedia_info = wikipedia_scraper.get_spot_info(
-                    surf_break=surf_break_name or None,
-                    city=raw_forecast.get("location", {}).get("city") or location_input,
+                location_data = raw_forecast.get("location", {})
+                beach_name = (
+                    surf_break_name
+                    or location_data.get("city")
+                    or selected_city
+                    or location_input.strip()
+                    or "Unnamed beach"
                 )
+                saved_forecast = None
+                if app.config["DATABASE_ENABLED"]:
+                    try:
+                        saved_forecast = save_forecast(
+                            raw_forecast,
+                            forecast_date,
+                            forecast_time.hour,
+                            beach_name=beach_name,
+                            fallback_latitude=(
+                                latitude_input if lookup_mode == "coordinates" else None
+                            ),
+                            fallback_longitude=(
+                                longitude_input if lookup_mode == "coordinates" else None
+                            ),
+                            update_beach_name=bool(surf_break_name),
+                        )
+                    except (SQLAlchemyError, ValueError):
+                        db.session.rollback()
+                        app.logger.warning(
+                            "Forecast rendered but could not be persisted.", exc_info=True
+                        )
+
+                if saved_forecast is not None and current_user.is_authenticated:
+                    try:
+                        track_forecast_request(
+                            current_user.id,
+                            saved_forecast,
+                            lookup_mode=lookup_mode,
+                            requested_location=(
+                                location_input.strip()
+                                if lookup_mode == "location"
+                                else selected_city
+                            ),
+                            surf_break_name=surf_break_name,
+                        )
+                    except SQLAlchemyError:
+                        db.session.rollback()
+                        app.logger.warning(
+                            "The user's forecast request could not be tracked.",
+                            exc_info=True,
+                        )
+
+                if saved_forecast is not None:
+                    try:
+                        wikipedia_info = get_cached_wikipedia_info(
+                            saved_forecast.beach_id,
+                            max_age_days=app.config["WIKIPEDIA_CACHE_DAYS"],
+                        )
+                    except SQLAlchemyError:
+                        db.session.rollback()
+                        app.logger.warning(
+                            "Stored Wikipedia information could not be read.",
+                            exc_info=True,
+                        )
+
+                if wikipedia_info is None:
+                    wikipedia_info = wikipedia_service.get_spot_info(
+                        surf_break=surf_break_name or None,
+                        city=location_data.get("city") or location_input,
+                    )
+                    if wikipedia_info and saved_forecast is not None:
+                        try:
+                            save_wikipedia_info(
+                                saved_forecast.beach_id, wikipedia_info
+                            )
+                        except SQLAlchemyError:
+                            db.session.rollback()
+                            app.logger.warning(
+                                "Wikipedia information could not be persisted.",
+                                exc_info=True,
+                            )
             except (ValueError, MarineWeatherError) as exc:
                 error = str(exc)
 
@@ -144,6 +244,7 @@ def register_routes(app):
             wikipedia_info=wikipedia_info,
             error=error,
             forecast_date=forecast_date,
+            forecast_time=forecast_time,
             today=date.today().isoformat(),
             max_date=max_date.isoformat(),
         )
