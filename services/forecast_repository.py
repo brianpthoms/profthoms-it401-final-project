@@ -36,12 +36,23 @@ def save_forecast(
     fallback_latitude=None,
     fallback_longitude=None,
     update_beach_name=False,
+    use_fallback_coordinates=False,
 ):
     """Create or update one beach/date/hour forecast and commit it atomically."""
     location = raw_forecast.get("location", {})
     conditions = raw_forecast.get("conditions", {})
-    latitude = _decimal(location.get("latitude", fallback_latitude), "0.000001")
-    longitude = _decimal(location.get("longitude", fallback_longitude), "0.000001")
+    latitude_source = (
+        fallback_latitude
+        if use_fallback_coordinates
+        else location.get("latitude") or fallback_latitude
+    )
+    longitude_source = (
+        fallback_longitude
+        if use_fallback_coordinates
+        else location.get("longitude") or fallback_longitude
+    )
+    latitude = _decimal(latitude_source, "0.000001")
+    longitude = _decimal(longitude_source, "0.000001")
     if latitude is None or longitude is None:
         raise ValueError("Forecast coordinates are required for persistence.")
 
@@ -58,8 +69,10 @@ def save_forecast(
             longitude=longitude,
         )
         db.session.add(beach)
-    elif update_beach_name and beach_name:
+    elif update_beach_name and beach_name and beach.name != beach_name:
         beach.name = beach_name
+        if beach.wikipedia_info is not None:
+            db.session.delete(beach.wikipedia_info)
 
     for field in ("city", "state_prov", "country_name"):
         value = location.get(field)

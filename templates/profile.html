@@ -23,33 +23,144 @@
             <p class="eyebrow eyebrow-dark"><span></span> Your activity</p>
             <h2>Forecast history.</h2>
         </div>
-        <p>Your latest 100 successful forecast requests are shown here.</p>
+        <p>Your successful forecast requests are shown here, 10 at a time.</p>
     </div>
 
+    <form class="history-search" method="get" action="{{ url_for('profile') }}">
+        <label class="history-search-spot">
+            <span>Beach or surf spot</span>
+            <input type="search" name="spot" maxlength="150" value="{{ filters.spot }}" placeholder="e.g. The Wedge" {% if field_errors.spot %}aria-invalid="true" aria-describedby="spot-error"{% endif %}>
+            {% if field_errors.spot %}<small id="spot-error" class="field-error">{{ field_errors.spot }}</small>{% endif %}
+        </label>
+        <label>
+            <span>Forecast from</span>
+            <input type="date" name="date_from" value="{{ filters.date_from }}" {% if field_errors.date_from %}aria-invalid="true" aria-describedby="date-from-error"{% endif %}>
+            {% if field_errors.date_from %}<small id="date-from-error" class="field-error">{{ field_errors.date_from }}</small>{% endif %}
+        </label>
+        <label>
+            <span>Forecast through</span>
+            <input type="date" name="date_to" value="{{ filters.date_to }}" {% if field_errors.date_to %}aria-invalid="true" aria-describedby="date-to-error"{% endif %}>
+            {% if field_errors.date_to %}<small id="date-to-error" class="field-error">{{ field_errors.date_to }}</small>{% endif %}
+        </label>
+        <label>
+            <span>Time of day</span>
+            <select name="time_period" {% if field_errors.time_period %}aria-invalid="true" aria-describedby="time-period-error"{% endif %}>
+                <option value="">Any time</option>
+                <option value="overnight" {% if filters.time_period == 'overnight' %}selected{% endif %}>Overnight · 12–4 AM</option>
+                <option value="morning" {% if filters.time_period == 'morning' %}selected{% endif %}>Morning · 5–11 AM</option>
+                <option value="afternoon" {% if filters.time_period == 'afternoon' %}selected{% endif %}>Afternoon · 12–4 PM</option>
+                <option value="evening" {% if filters.time_period == 'evening' %}selected{% endif %}>Evening · 5–11 PM</option>
+            </select>
+            {% if field_errors.time_period %}<small id="time-period-error" class="field-error">{{ field_errors.time_period }}</small>{% endif %}
+        </label>
+        <label>
+            <span>Sort results</span>
+            <select name="sort" {% if field_errors.sort %}aria-invalid="true" aria-describedby="sort-error"{% endif %}>
+                <option value="recent" {% if sort_order == 'recent' %}selected{% endif %}>Newest first</option>
+                <option value="spot_asc" {% if sort_order == 'spot_asc' %}selected{% endif %}>Surf spot · A–Z</option>
+            </select>
+            {% if field_errors.sort %}<small id="sort-error" class="field-error">{{ field_errors.sort }}</small>{% endif %}
+        </label>
+        <fieldset class="history-radius" {% if field_errors.location %}aria-describedby="location-error"{% endif %}>
+            <legend>Location radius</legend>
+            <input id="history-latitude" type="hidden" name="latitude" value="{{ filters.latitude }}">
+            <input id="history-longitude" type="hidden" name="longitude" value="{{ filters.longitude }}">
+            <input id="history-location-label" type="hidden" name="location_label" value="{{ filters.location_label }}">
+            <button id="use-current-location" class="button button-light" type="button">{% if filters.latitude and filters.longitude %}Update my location{% else %}Use my location{% endif %}</button>
+            <label>
+                <span>Within</span>
+                <select id="history-radius" name="radius" {% if field_errors.radius %}aria-invalid="true" aria-describedby="radius-error"{% endif %}>
+                    <option value="">Choose radius</option>
+                    {% for miles in (5, 10, 25, 50, 100) %}<option value="{{ miles }}" {% if filters.radius == miles|string %}selected{% endif %}>{{ miles }} miles</option>{% endfor %}
+                </select>
+                {% if field_errors.radius %}<small id="radius-error" class="field-error">{{ field_errors.radius }}</small>{% endif %}
+            </label>
+            <button id="clear-current-location" class="text-link location-clear" type="button" {% if not filters.latitude and not filters.longitude and not filters.radius %}hidden{% endif %}>Clear location</button>
+            <p id="location-status" class="location-status" aria-live="polite">{% if filters.location_label %}<strong>Current location: {{ filters.location_label }}</strong>{% elif filters.latitude and filters.longitude %}Current coordinates added to this search.{% else %}Use your device location to find nearby saved forecasts.{% endif %}</p>
+            <p class="location-attribution">Location names © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>.</p>
+            {% if field_errors.location %}<small id="location-error" class="field-error location-error">{{ field_errors.location }}</small>{% endif %}
+        </fieldset>
+        <div class="history-search-actions">
+            <button class="button button-coral" type="submit">Search history</button>
+            {% if search_submitted %}<a class="text-link" href="{{ url_for('profile') }}">Clear filters</a>{% endif %}
+        </div>
+    </form>
+
+    <div id="history-results" class="history-results-anchor" tabindex="-1"></div>
+
+    {% if filter_error %}
+    <div class="forecast-alert" role="alert"><strong>Search unavailable.</strong> {{ filter_error }}</div>
+    {% endif %}
+
+    {% if not filter_error %}
+    <div class="history-metrics" aria-label="Forecast history search summary">
+        <div class="history-total-metric">
+            <span>Total history</span>
+            <strong>{{ history_total_count }}</strong>
+            <small>forecast{% if history_total_count != 1 %}s{% endif %} saved</small>
+        </div>
+        {% if search_submitted %}
+        <div class="history-recall-metric">
+            <span>Search recall</span>
+            <strong>{% if search_recall_percent is not none %}{{ '%.1f'|format(search_recall_percent) }}%{% else %}—{% endif %}</strong>
+            <small>{{ pagination.total }} of {{ history_total_count }} forecast{% if history_total_count != 1 %}s{% endif %} matched</small>
+            {% if search_recall_percent is not none %}<div class="recall-bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(search_recall_percent) }}%"></span></div>{% endif %}
+        </div>
+        <p>Search recall is the share of your complete forecast history returned by the active filters.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if history %}
+    <p class="history-result-count">Showing {{ pagination.first }}–{{ pagination.last }} of {{ pagination.total }} forecast{% if pagination.total != 1 %}s{% endif %}.</p>
     <div class="history-table-wrap">
         <table class="history-table">
             <thead>
-                <tr><th>Surf spot</th><th>Forecast time</th><th>Requested</th><th>Lookup</th><th></th></tr>
+                <tr><th>Surf spot</th>{% if show_distances %}<th>Distance from you</th>{% endif %}<th>Forecast time</th><th>Rating</th><th>Requested</th><th>Lookup</th><th></th></tr>
             </thead>
             <tbody>
                 {% for item in history %}
                 <tr>
-                    <td>{% if item.forecast %}<a class="history-location" href="{{ url_for('history_forecast', request_id=item.id) }}"><strong>{{ item.surf_break_name or (item.beach.name if item.beach else item.requested_location or 'Unknown location') }}</strong></a>{% else %}<strong>{{ item.requested_location or 'Unknown location' }}</strong>{% endif %}</td>
+                    <td>{% if item.forecast %}<a class="history-location" href="{{ url_for('history_forecast', request_id=item.id, search_id=search_event_id, page=pagination.page, position=((pagination.page - 1) * pagination.per_page + loop.index)) }}"><strong>{{ item.surf_break_name or (item.beach.name if item.beach else item.requested_location or 'Unknown location') }}</strong></a>{% else %}<strong>{{ item.requested_location or 'Unknown location' }}</strong>{% endif %}</td>
+                    {% if show_distances %}<td class="history-distance">{% set distance = history_distances.get(item.id) %}{% if distance is not none %}{% if distance < 0.05 %}&lt; 0.1 mi{% else %}{{ '%.1f'|format(distance) }} mi{% endif %}{% else %}Unavailable{% endif %}</td>{% endif %}
                     <td>{% if item.forecast %}{{ item.forecast.forecast_date.strftime('%b %d, %Y') }} · {{ '%02d:00'|format(item.forecast.forecast_hour) }}{% else %}Unavailable{% endif %}</td>
+                    <td>{% if item.feedback %}<span class="history-rating"><span aria-hidden="true">★</span> {{ item.feedback.rating }}/5</span>{% else %}<span class="history-unrated">Not rated</span>{% endif %}</td>
                     <td>{{ item.requested_at.strftime('%b %d, %Y · %I:%M %p') }}</td>
                     <td>{{ item.lookup_mode|title }}</td>
-                    <td>{% if item.forecast %}<a class="history-view" href="{{ url_for('history_forecast', request_id=item.id) }}">View forecast <span aria-hidden="true">→</span></a>{% endif %}</td>
+                    <td>{% if item.forecast %}<a class="history-view" href="{{ url_for('history_forecast', request_id=item.id, search_id=search_event_id, page=pagination.page, position=((pagination.page - 1) * pagination.per_page + loop.index)) }}">View forecast <span aria-hidden="true">→</span></a>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-    {% else %}
+    {% if pagination.pages > 1 %}
+    <nav class="history-pagination" aria-label="Forecast history pages">
+        {% if pagination.has_prev %}<a class="pagination-direction" href="{{ url_for('profile', page=pagination.prev_num, _anchor='history-results', **active_filters) }}" rel="prev">← Previous</a>{% else %}<span class="pagination-direction is-disabled">← Previous</span>{% endif %}
+        <div class="pagination-pages">
+            {% for page_number, page_url in pagination_links %}
+                {% if page_number %}
+                    {% if page_number == pagination.page %}<span class="pagination-page is-current" aria-current="page">{{ page_number }}</span>{% else %}<a class="pagination-page" href="{{ page_url }}">{{ page_number }}</a>{% endif %}
+                {% else %}
+                    <span class="pagination-ellipsis" aria-hidden="true">…</span>
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% if pagination.has_next %}<a class="pagination-direction" href="{{ url_for('profile', page=pagination.next_num, _anchor='history-results', **active_filters) }}" rel="next">Next →</a>{% else %}<span class="pagination-direction is-disabled">Next →</span>{% endif %}
+    </nav>
+    {% endif %}
+    {% elif not filter_error %}
     <div class="forecast-empty">
+        {% if has_filters %}
+        <h3>No forecasts match those filters.</h3>
+        <p>Try a wider date range, another time of day, or a different surf spot.</p>
+        <a class="text-link" href="{{ url_for('profile') }}">Clear all filters <span aria-hidden="true">→</span></a>
+        {% else %}
         <h3>No forecast requests yet.</h3>
         <p>Run a forecast while signed in and it will appear here.</p>
+        {% endif %}
     </div>
     {% endif %}
 </section>
 {% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='profile.js') }}" defer></script>{% endblock %}

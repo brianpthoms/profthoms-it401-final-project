@@ -11,13 +11,18 @@
     const forecastFields = document.querySelector(".forecast-form");
     const surfBreakInput = document.getElementById("surf-break-name");
     const selectedCityInput = document.getElementById("selected-city");
+    const useCurrentLocationButton = document.getElementById("use-forecast-location");
     let map = null;
+    let currentLocationMarker = null;
     let surfBreakRequest = null;
     let cityRequest = null;
     let resolvedCity = selectedCityInput.value;
     let resolvedSurfBreak = surfBreakInput.value;
+    let resolvedSpotType = "surf break";
+    let currentLocationLabel = "";
+    let currentSpotDistance = null;
 
-    if (!mapElement || !latitudeInput || !longitudeInput) {
+    if (!mapElement || !latitudeInput || !longitudeInput || !useCurrentLocationButton) {
         return;
     }
 
@@ -82,10 +87,17 @@
     function renderLocationStatus(message = "") {
         if (message) {
             coordinateStatus.textContent = message;
+        } else if (currentLocationLabel && resolvedSurfBreak) {
+            const distance = currentSpotDistance === null
+                ? ""
+                : ` · Approximately ${formatDistance(currentSpotDistance)} away`;
+            coordinateStatus.textContent = `Your location: ${currentLocationLabel} · Closest ${resolvedSpotType}: ${resolvedSurfBreak}${distance}`;
         } else if (resolvedSurfBreak && resolvedCity) {
-            coordinateStatus.textContent = `Selected surf break: ${resolvedSurfBreak} · Near ${resolvedCity}`;
+            coordinateStatus.textContent = `Selected ${resolvedSpotType}: ${resolvedSurfBreak} · Near ${resolvedCity}`;
         } else if (resolvedSurfBreak) {
-            coordinateStatus.textContent = `Selected surf break: ${resolvedSurfBreak}`;
+            coordinateStatus.textContent = `Selected ${resolvedSpotType}: ${resolvedSurfBreak}`;
+        } else if (currentLocationLabel) {
+            coordinateStatus.textContent = `Your location: ${currentLocationLabel} · No named beach was found nearby`;
         } else if (resolvedCity) {
             coordinateStatus.textContent = `Selected location: ${resolvedCity}`;
         } else {
@@ -93,7 +105,7 @@
         }
     }
 
-    async function reverseGeocode(latitude, longitude) {
+    async function reverseGeocode(latitude, longitude, useAsCurrentLocation = false) {
         if (cityRequest) {
             cityRequest.abort();
         }
@@ -132,15 +144,28 @@
                 ?? address.county
                 ?? address.state;
             const region = address.state && address.state !== city ? address.state : null;
-            resolvedCity = [city, region].filter(Boolean).join(", ");
+            const label = [city, region, address.country].filter(Boolean).join(", ");
+            if (useAsCurrentLocation) {
+                currentLocationLabel = label;
+                resolvedCity = label;
+                if (currentLocationMarker && label) {
+                    currentLocationMarker.setTooltipContent(`Your location: ${label}`);
+                }
+            } else {
+                resolvedCity = label;
+            }
             selectedCityInput.value = resolvedCity;
             renderLocationStatus();
+            return label;
         } catch (error) {
             if (error.name !== "AbortError") {
-                resolvedCity = "";
-                selectedCityInput.value = "";
+                if (!useAsCurrentLocation) {
+                    resolvedCity = "";
+                    selectedCityInput.value = "";
+                }
                 renderLocationStatus();
             }
+            return "";
         } finally {
             window.clearTimeout(timeout);
             if (cityRequest === controller) {
@@ -159,6 +184,11 @@
             * Math.cos(toRadians(targetLatitude))
             * Math.sin(longitudeDelta / 2) ** 2;
         return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatDistance(distanceInMetersValue) {
+        const miles = distanceInMetersValue / 1609.344;
+        return miles < 0.1 ? "less than 0.1 mi" : `${miles.toFixed(1)} mi`;
     }
 
     function elementCoordinates(element) {
@@ -191,18 +221,20 @@
         }
     }
 
-    async function findNearbySurfBreak(latitude, longitude) {
+    async function findNearbySurfBreak(latitude, longitude, fromCurrentLocation = false) {
         if (surfBreakRequest) {
             surfBreakRequest.abort();
         }
 
         surfBreakInput.value = "";
         resolvedSurfBreak = "";
-        renderLocationStatus("Identifying the nearest city and surf break…");
+        resolvedSpotType = "surf break";
+        currentSpotDistance = null;
+        renderLocationStatus("Identifying the nearest named beach or surf break…");
         const controller = new AbortController();
         surfBreakRequest = controller;
         const timeout = window.setTimeout(() => controller.abort(), 8000);
-        const query = `[out:json][timeout:6];nwr(around:10000,${latitude},${longitude})["sport"="surfing"]["name"];out center tags 30;`;
+        const query = `[out:json][timeout:6];(nwr(around:50000,${latitude},${longitude})["sport"="surfing"]["name"];nwr(around:50000,${latitude},${longitude})["natural"="beach"]["name"];);out center tags 60;`;
         const overpassEndpoints = [
             "https://overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter",
@@ -233,7 +265,11 @@
             const breaks = payload.elements
                 .filter((element) => {
                     const tags = element.tags ?? {};
-                    return tags.name && !tags.shop && !tags.amenity && !tags.club;
+                    return tags.name
+                        && (tags.sport === "surfing" || tags.natural === "beach")
+                        && !tags.shop
+                        && !tags.amenity
+                        && !tags.club;
                 })
                 .map((element) => {
                     const coordinates = elementCoordinates(element);
@@ -241,6 +277,7 @@
                         name: element.tags.name,
                         latitude: coordinates[0],
                         longitude: coordinates[1],
+                        spotType: element.tags.sport === "surfing" ? "surf break" : "beach",
                         distance: distanceInMeters(
                             latitude,
                             longitude,
@@ -253,21 +290,44 @@
                 .sort((first, second) => first.distance - second.distance);
 
             if (breaks.length === 0) {
-                await reverseGeocode(latitude, longitude);
+                if (!fromCurrentLocation) {
+                    await reverseGeocode(latitude, longitude);
+                }
                 return;
             }
 
             const nearestBreak = breaks[0];
             surfBreakInput.value = nearestBreak.name;
             resolvedSurfBreak = nearestBreak.name;
+            resolvedSpotType = nearestBreak.spotType;
+            currentSpotDistance = fromCurrentLocation ? nearestBreak.distance : null;
             marker.setLatLng([nearestBreak.latitude, nearestBreak.longitude]);
             updateInputs(nearestBreak.latitude, nearestBreak.longitude);
-            map.panTo([nearestBreak.latitude, nearestBreak.longitude]);
-            marker.bindTooltip(nearestBreak.name, { direction: "top", offset: [0, -12] }).openTooltip();
-            await reverseGeocode(nearestBreak.latitude, nearestBreak.longitude);
+            marker.bindTooltip(
+                `${nearestBreak.name} · ${nearestBreak.spotType}`,
+                { direction: "top", offset: [0, -12] }
+            ).openTooltip();
+            if (fromCurrentLocation && currentLocationMarker) {
+                map.fitBounds(
+                    L.latLngBounds([
+                        currentLocationMarker.getLatLng(),
+                        marker.getLatLng(),
+                    ]),
+                    { padding: [45, 45], maxZoom: 13 }
+                );
+                selectedCityInput.value = currentLocationLabel;
+                renderLocationStatus();
+            } else {
+                map.panTo([nearestBreak.latitude, nearestBreak.longitude]);
+                await reverseGeocode(nearestBreak.latitude, nearestBreak.longitude);
+            }
         } catch (error) {
             if (error.name !== "AbortError" || surfBreakRequest === controller) {
-                await reverseGeocode(latitude, longitude);
+                if (!fromCurrentLocation) {
+                    await reverseGeocode(latitude, longitude);
+                } else {
+                    renderLocationStatus();
+                }
             }
         } finally {
             window.clearTimeout(timeout);
@@ -277,18 +337,78 @@
         }
     }
 
+    function clearCurrentLocation() {
+        currentLocationLabel = "";
+        currentSpotDistance = null;
+        if (currentLocationMarker) {
+            map.removeLayer(currentLocationMarker);
+            currentLocationMarker = null;
+        }
+    }
+
+    if (!("geolocation" in navigator)) {
+        useCurrentLocationButton.disabled = true;
+        useCurrentLocationButton.title = "Location services are not available in this browser.";
+    } else {
+        useCurrentLocationButton.addEventListener("click", () => {
+            useCurrentLocationButton.disabled = true;
+            renderLocationStatus("Finding your current location…");
+            navigator.geolocation.getCurrentPosition(
+                async ({ coords }) => {
+                    const latitude = coords.latitude;
+                    const longitude = coords.longitude;
+                    clearCurrentLocation();
+                    resolvedCity = "";
+                    selectedCityInput.value = "";
+                    currentLocationMarker = L.circleMarker(
+                        [latitude, longitude],
+                        {
+                            radius: 9,
+                            color: "#ffffff",
+                            weight: 3,
+                            fillColor: "#ff704f",
+                            fillOpacity: 1,
+                        }
+                    ).addTo(map).bindTooltip("Your current location");
+                    selectLocation(latitude, longitude);
+                    map.setView([latitude, longitude], 11);
+                    await reverseGeocode(latitude, longitude, true);
+                    await findNearbySurfBreak(latitude, longitude, true);
+                    useCurrentLocationButton.textContent = "Update my current location";
+                    useCurrentLocationButton.disabled = false;
+                },
+                (error) => {
+                    const messages = {
+                        1: "Location permission was denied. Allow access and try again.",
+                        2: "Your current location could not be determined.",
+                        3: "Finding your location timed out. Please try again.",
+                    };
+                    renderLocationStatus(
+                        messages[error.code]
+                        || "Your current location could not be determined."
+                    );
+                    useCurrentLocationButton.disabled = false;
+                },
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+            );
+        });
+    }
+
     map.on("click", (event) => {
+        clearCurrentLocation();
         selectLocation(event.latlng.lat, event.latlng.lng);
         findNearbySurfBreak(event.latlng.lat, event.latlng.lng);
     });
 
     marker.on("dragend", () => {
+        clearCurrentLocation();
         const position = marker.getLatLng();
         selectLocation(position.lat, position.lng);
         findNearbySurfBreak(position.lat, position.lng);
     });
 
     function syncMarkerFromInputs() {
+        clearCurrentLocation();
         const latitude = Number.parseFloat(latitudeInput.value);
         const longitude = Number.parseFloat(longitudeInput.value);
         if (validCoordinates(latitude, longitude)) {

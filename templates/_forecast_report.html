@@ -19,6 +19,36 @@
     </dl>
 </article>
 <p class="demo-note">Marine forecast data provided by APIFreaks. Wave heights are converted to feet.</p>
+{% if history_item %}
+<details class="forecast-feedback" id="forecast-feedback" {% if request.args.get('feedback') == 'open' %}open{% endif %}>
+    <summary id="forecast-feedback-title">
+        <span class="feedback-prompt"><span class="feedback-icon" aria-hidden="true">★</span><span><strong>Rate this forecast</strong><small>Help improve Breakline</small></span></span>
+        <span class="feedback-action">{% if history_item.feedback %}Your rating: {{ history_item.feedback.rating }}/5 · Edit{% else %}Share feedback{% endif %}<span class="feedback-chevron" aria-hidden="true">⌄</span></span>
+    </summary>
+    <div class="feedback-panel">
+        <p>Were these conditions useful and accurate for your session?</p>
+        <form action="{{ url_for('forecast_feedback', request_id=history_item.id) }}" method="post">
+        <fieldset class="feedback-rating">
+            <legend>Overall rating <span aria-hidden="true">*</span></legend>
+            <div class="rating-options">
+                {% for value in range(1, 6) %}
+                <label>
+                    <input type="radio" name="rating" value="{{ value }}" {% if history_item.feedback and history_item.feedback.rating == value %}checked{% endif %} required>
+                    <span>{{ value }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <p class="rating-scale"><span>Not useful</span><span>Very useful</span></p>
+        </fieldset>
+        <label class="feedback-comment" for="feedback-comment">Comments <span>(optional)</span></label>
+        <textarea id="feedback-comment" name="comment" maxlength="1000" rows="3" placeholder="What matched the conditions—or missed the mark?">{{ history_item.feedback.comment if history_item.feedback and history_item.feedback.comment else '' }}</textarea>
+        <button class="button button-primary" type="submit">{% if history_item.feedback %}Update feedback{% else %}Submit feedback{% endif %} <span aria-hidden="true">→</span></button>
+        </form>
+    </div>
+</details>
+{% elif forecast and current_user.is_authenticated %}
+<p class="demo-note">Feedback is unavailable because this forecast could not be saved.</p>
+{% endif %}
 {% if wikipedia_info %}
 <article class="spot-story">
     <div>

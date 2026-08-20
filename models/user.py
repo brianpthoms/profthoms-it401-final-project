@@ -31,6 +31,13 @@ class User(UserMixin, db.Model):
     forecast_requests: Mapped[list["ForecastRequest"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    history_searches: Mapped[list["HistorySearch"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    history_search_interactions: Mapped[list["HistorySearchInteraction"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 from models.forecast_request import ForecastRequest  # noqa: E402
+from models.history_search import HistorySearch, HistorySearchInteraction  # noqa: E402

@@ -30,8 +30,15 @@ class ForecastRequest(db.Model):
     user: Mapped["User"] = relationship(back_populates="forecast_requests")
     beach: Mapped["Beach"] = relationship()
     forecast: Mapped["SurfForecast"] = relationship()
+    feedback: Mapped["ForecastFeedback | None"] = relationship(
+        back_populates="forecast_request",
+        cascade="all, delete-orphan",
+        single_parent=True,
+        uselist=False,
+    )
 
 
 from models.beach import Beach  # noqa: E402
 from models.surf_forecast import SurfForecast  # noqa: E402
 from models.user import User  # noqa: E402
+from models.forecast_feedback import ForecastFeedback  # noqa: E402

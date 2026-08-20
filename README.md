@@ -1,293 +1,448 @@
-# Breakline Surf Forecasts
+# Project Title
 
-Breakline is a Flask web application that turns marine-weather data into a concise, human-readable surf outlook. Users can search by city or select a coastal point on an interactive map. The application combines an APIFreaks marine forecast, OpenStreetMap location data, and a short Wikipedia overview when a relevant beach, city, or surf-break article exists.
+- **Application name:** Breakline Surf Forecasts
+- **Student:** Brian Thoms
+- **Course:** IT 401
+- **Assignment:** A4 — Search, Retrieval, Pagination, and Search Telemetry
 
-Users may optionally sign in with Google. Successful forecast requests made while signed in are linked to a private Breakline profile and displayed as request history.
+## Project Overview
 
-Weather conditions are requested at runtime, map selections are enriched with nearby place and surf-break names, supporting destination information is requested from Wikipedia's MediaWiki Action API, and successful forecasts are persisted in MySQL through Flask-SQLAlchemy.
+Breakline is a Flask application that helps surfers find and revisit useful marine forecasts. A user can request an hourly forecast by city, by selecting a point on a Leaflet map, or by granting browser location access and using the nearest named beach or surf break. Breakline combines APIFreaks marine-weather data, OpenStreetMap coastal information, and short Wikipedia overviews, then persists successful forecasts in MySQL through Flask-SQLAlchemy.
 
-## External Information Sources
+The application's purpose is to reduce the time required to compare coastal conditions and make a surfing plan. Its intended users are surfers and coastal visitors who want a readable forecast for a specific place and hour.
 
-| Source | Endpoint or website | Purpose |
-|---|---|---|
-| APIFreaks Marine Weather API | `GET https://api.apifreaks.com/v1.0/weather/marine` | Retrieves hourly wave height, wave direction, wave period, swell, and wind-wave conditions by coordinates or location name. |
-| OpenStreetMap raster tiles | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | Displays the interactive location picker. |
-| OpenStreetMap Overpass API | `https://overpass-api.de/api/interpreter` with a fallback to `https://overpass.kumi.systems/api/interpreter` | Finds the nearest named OpenStreetMap feature tagged `sport=surfing`. |
-| OpenStreetMap Nominatim | `GET https://nominatim.openstreetmap.org/reverse` | Converts a selected coordinate into a human-readable city or regional name. |
-| English Wikipedia | `GET https://en.wikipedia.org/w/api.php` | Searches for a relevant beach, surf-break, or coastal-city page and returns its plain-text introductory extract through the MediaWiki Action API. |
+Authenticated users receive a private forecast history. A4 search improves the original application by making that history retrievable rather than merely chronological. Users can search across beach and surf-spot names, combine filters, sort results, page through large histories, reopen stored reports without another weather API call, and search within a radius of their current location.
 
-APIFreaks requests authenticate through the server-side `X-apiKey` header. Browser requests to OpenStreetMap retain visible attribution, and Wikipedia API content links to its source article.
+## Search and Retrieval Features
 
-## Application Workflow
+| Capability | Implementation |
+|---|---|
+| Keyword search | Case-insensitive substring search for a beach, city, requested location, or surf spot. |
+| Fields searched | `ForecastRequest.surf_break_name`, `ForecastRequest.requested_location`, `Beach.name`, and `Beach.city`. |
+| Filters | Forecast start/end dates, time of day, current-location radius, and an implicit authenticated-user filter. |
+| Time groups | Overnight `00–04`, morning `05–11`, afternoon `12–16`, and evening `17–23`. |
+| Radius search | Haversine distance in SQL, from 1 through 100 miles; the results page also displays each distance. |
+| Sorting | Newest request first or surf-spot name A–Z. |
+| Ranking | Deterministic rule-based ordering rather than a relevance score. Newest-first uses request time; A–Z uses the displayed spot name. Request ID is the final tie-breaker. |
+| Pagination | Database-backed pagination with 10 results per page, a total-count query, numbered links, and previous/next controls. |
+| Search telemetry | Valid search criteria and result counts are recorded. Pagination views and forecast-result views are recorded as interactions. |
+| Search recall | Shows matched forecasts as a count and percentage of the signed-in user's complete forecast history. |
+
+Searches always include `ForecastRequest.user_id == current_user.id`; one user cannot search or open another user's history.
+
+## Search Workflow
 
 ```mermaid
-flowchart LR
-    U[User] -->|City or place| F[Flask route]
-    U -->|Google sign-in| G[Google OpenID Connect]
-    G --> UP[(User profile)]
-    U -->|Map selection| M[Leaflet map]
-    M --> O[OSM Overpass surf-break lookup]
-    M --> N[OSM Nominatim reverse geocoding]
-    O --> C[Hidden coordinates and readable label]
-    N --> C
-    C --> F
-    F --> V[Validate location and date]
-    V --> A[APIFreaks Marine Weather API]
-    A --> D[Clean and format forecast data]
-    D --> W[Wikipedia API search and extract]
-    W --> WI[(Stored Wikipedia spot info)]
-    D --> DB[(MySQL beaches and forecasts)]
-    DB --> UP
-    W --> R[Combined Jinja forecast page]
-    D --> R
+flowchart TD
+    U[Authenticated user] --> F[Profile search form]
+    F --> V{Validate query, dates, time, radius, sort, page}
+    V -->|Invalid| E[Accessible field and summary errors]
+    V -->|Valid| Q[Build owner-scoped SQLAlchemy SELECT]
+    Q --> J[Join ForecastRequest, SurfForecast, and Beach]
+    J --> K[Apply keyword and optional filters]
+    K --> O[Apply newest-first or A-Z ordering]
+    O --> P[COUNT plus LIMIT/OFFSET: 10 per page]
+    P --> R[Render matching stored forecasts]
+    P --> S[(history_searches)]
+    R --> I{User interaction}
+    I -->|Changes page| T[(page_view telemetry)]
+    I -->|Opens forecast| C[(result_view telemetry)]
+    C --> D[Saved forecast detail]
 ```
 
-1. The user chooses either **Pick on map** or **City or place**.
-2. A map click stores latitude and longitude in hidden form fields. Overpass attempts to identify a nearby surf break, while Nominatim supplies a readable city or region.
-3. Flask validates the lookup mode, coordinates or location name, and forecast date.
-4. The server requests an hourly marine forecast from APIFreaks and selects the user's requested hour.
-5. Returned metric wave heights are converted to feet, directions are converted to cardinal labels, and missing measurements receive readable fallback text.
-6. The server reuses fresh stored Wikipedia information when available. Otherwise, it asks the MediaWiki Action API for relevant articles and their plain-text introductory extracts, selects the best surf-related match, and stores it with revision and license provenance.
-7. The beach and hourly forecast are inserted or updated in MySQL. One row is retained per beach, forecast date, and forecast hour.
-8. When the user is signed in, the successful request is linked to their local profile. Anonymous requests are not tracked.
-9. The forecast and optional Wikipedia overview are rendered together. Wikipedia or database failures never block the marine forecast.
+1. Flask normalizes and validates the submitted GET parameters.
+2. The repository builds a SQL query restricted to the signed-in user.
+3. Keyword and structured filters are combined with SQL `AND`; the keyword fields are combined with SQL `OR`.
+4. SQL ordering and pagination are applied before records are returned to the browser.
+5. The rendered page preserves active filters, sort order, location context, and telemetry search ID in pagination links.
+6. Valid new searches, page views, and result views are stored for later evaluation. Invalid and empty searches are not recorded.
 
-## Information Model
+## Searchable Information
 
-Breakline stores normalized beaches and their hourly marine forecasts in MySQL. Repeating a request for the same coordinates, date, and hour refreshes that record; choosing a different hour creates a separate forecast.
+| Model | Searchable fields | Filter fields | Ranking/sorting fields | Reason |
+|---|---|---|---|---|
+| `ForecastRequest` | `surf_break_name`, `requested_location` | `user_id` | `requested_at`, `id` | Contains the user's original label, selected break, ownership, and request chronology. |
+| `Beach` | `name`, `city` | `latitude`, `longitude` through calculated distance | `name` through the displayed-name expression | Supplies normalized location names and coordinates. |
+| `SurfForecast` | None in the keyword expression | `forecast_date`, `forecast_hour` | None currently | Dates and hours are structured values and are more precise as filters than text. |
+| `HistorySearch` | Not exposed as user-searchable content | User and timestamp support later analysis | Not used in live result ranking yet | Retains search intent and result-count signals for evaluation. |
+| `HistorySearchInteraction` | Not exposed as user-searchable content | Search, user, interaction type, page, and position | Not used in live result ranking yet | Retains engagement signals for future recommendations. |
 
-| Entity | Attributes | Origin |
-|---|---|---|
-| Forecast request | lookup mode, location text, hidden latitude, hidden longitude, readable selected city, surf-break name, forecast date | Local user input and browser state |
-| Marine location | city, state/province, country, latitude, longitude | External: APIFreaks |
-| Marine conditions | maximum wave height, dominant wave direction, maximum wave period, swell height/direction/period, wind-wave height | External: APIFreaks |
-| Surf-break match | name, latitude, longitude, distance from selected point | External: OpenStreetMap Overpass |
-| Readable map location | city/town/village/municipality/county, state | External: OpenStreetMap Nominatim |
-| Wikipedia overview | beach reference, page/revision IDs, article title, plain-text introductory summary, canonical source URL, license, and retrieval timestamp | Local MySQL record imported from the MediaWiki Action API |
-| Beach | canonical display name, city, state/province, country, latitude, longitude, timestamps | Local MySQL record normalized from API and map data |
-| Surf forecast | beach reference, forecast date, forecast hour, wave/swell/wind-wave measurements, source, retrieval timestamp | Local MySQL record imported from APIFreaks |
-| User | Google subject identifier, verified email, display name, avatar URL, account and last-login timestamps | Local MySQL profile created from verified Google OIDC claims |
-| Forecast request | user, beach, forecast, lookup mode, requested label, surf-break name, request timestamp | Local MySQL activity record created only for signed-in users |
-| Surf-spot sample | name, region, sample wave/swell/wind/tide/rating fields in `data/surf_spots.json` | Local legacy prototype data; not used for live forecasts |
-| Application configuration | API key, service base URLs, Flask environment, secret key | Local environment variables |
+The displayed-name expression uses the first available value from surf-break name, beach name, and requested location. That same priority is used for alphabetical ordering so the table label and database ordering agree.
 
-Wikipedia overviews are stored for 30 days by default and then refreshed on the next successful forecast request. The service also keeps a small in-process cache for repeated lookups during the running process.
+## Retrieval Strategy
 
-## Environment Variables
+### Keyword matching
 
-Copy `.env.example` to `.env`. Never commit `.env` or an actual API key.
+The search repository escapes `%`, `_`, and backslash characters, adds `%` around the normalized query, and applies SQLAlchemy `ilike()` to four fields. The expression is equivalent to:
 
-| Variable | Required | Description |
-|---|---:|---|
-| `APIFREAKS_API_KEY` | Yes | APIFreaks credential used only by the Flask server. |
-| `SECRET_KEY` | Recommended | Flask signing secret. The development fallback is not appropriate for production. |
-| `FLASK_ENV` | No | `development` or `production`; defaults to development configuration. |
-| `APIFREAKS_BASE_URL` | No | Overrides the default APIFreaks base URL. Useful for testing. |
-| `WIKIPEDIA_BASE_URL` | No | Overrides `https://en.wikipedia.org`. Useful for testing. |
-| `WIKIPEDIA_USER_AGENT` | Recommended | Identifies the application and provides operator contact information as required by Wikimedia API policy. |
-| `WIKIPEDIA_CACHE_DAYS` | No | Days to reuse stored spot information before refreshing it; defaults to `30`. |
-| `GOOGLE_CLIENT_ID` | Yes for sign-in | OAuth 2.0 web-client ID from Google Cloud. |
-| `GOOGLE_CLIENT_SECRET` | Yes for sign-in | OAuth 2.0 web-client secret from Google Cloud. |
-| `DB_HOST` | Yes | MySQL host; defaults to `brian.cikeys.com`. |
-| `DB_PORT` | No | MySQL port; defaults to `3306`. |
-| `DB_NAME` | Yes | MySQL database/schema name. The database itself must already exist. |
-| `DB_USERNAME` | Yes | MySQL username with permission to create and modify Breakline tables. |
-| `DB_PASSWORD` | Yes | MySQL password. |
-| `DATABASE_URL` | No | Complete SQLAlchemy URL that overrides the individual `DB_*` settings. |
-| `API_KEY` | No | Legacy generic service configuration; not used by the marine forecast. |
-| `AI_SERVICE_API_KEY` | No | Reserved for the placeholder AI service; not used by current features. |
+```sql
+WHERE user_id = :current_user
+  AND (
+    surf_break_name ILIKE :pattern
+    OR requested_location ILIKE :pattern
+    OR beach.name ILIKE :pattern
+    OR beach.city ILIKE :pattern
+  )
+```
 
-Example `.env`:
+SQLAlchemy translates `ILIKE` appropriately for the configured database. This project does not currently use MySQL full-text indexes, stemming, fuzzy matching, or embeddings.
 
-```dotenv
-SECRET_KEY=replace-with-a-random-secret
-APIFREAKS_API_KEY=replace-with-your-apifreaks-api-key
-WIKIPEDIA_USER_AGENT=Breakline/1.1 (https://brian.cikeys.com/; educational surf forecast)
-WIKIPEDIA_CACHE_DAYS=30
-GOOGLE_CLIENT_ID=replace-with-your-google-oauth-client-id
-GOOGLE_CLIENT_SECRET=replace-with-your-google-oauth-client-secret
-DB_HOST=brian.cikeys.com
-DB_PORT=3306
-DB_NAME=replace-with-your-database-name
-DB_USERNAME=replace-with-your-database-username
-DB_PASSWORD=replace-with-your-database-password
-FLASK_ENV=development
+### Combining filters
+
+- Fields inside keyword search are combined with `OR`.
+- Keyword, date range, time group, and radius constraints are combined with `AND`.
+- Start and end dates are independently optional and inclusive.
+- Time groups translate to an inclusive `forecast_hour BETWEEN first_hour AND last_hour` condition.
+- Radius uses the Haversine formula against stored `Beach.latitude` and `Beach.longitude` values.
+- The authenticated-user predicate is always present.
+
+### Sorting and ranking
+
+The default order is `requested_at DESC, id DESC`. Alphabetical order uses a lowercase `COALESCE` display-name expression followed by request time and ID as deterministic tie-breakers. This is rule-based ranking: keyword matches do not receive different relevance scores based on the matched field or term position.
+
+### Retrieval limitations
+
+- Substring matching does not understand meaning, synonyms, misspellings, or word importance.
+- Singular and plural forms can differ.
+- Every matching text field has equal weight.
+- A query such as `HB` will not automatically expand to `Huntington Beach`.
+- Radius results are filtered by distance but are not currently sorted by nearest distance.
+- Pagination uses offset-based retrieval; very large histories may eventually benefit from cursor pagination.
+
+## Search Telemetry
+
+Breakline records first-party telemetry only for authenticated users and valid searches.
+
+### Recorded search activity
+
+`history_searches` stores:
+
+- user ID;
+- keyword text;
+- forecast start and end dates;
+- time-of-day filter;
+- whether a location radius was used;
+- radius in miles;
+- sort order;
+- total result count; and
+- creation timestamp.
+
+For privacy, telemetry does **not** store the user's precise current latitude, longitude, or reverse-geocoded current-location label.
+
+`history_search_interactions` stores:
+
+- user ID and optional originating search ID;
+- optional forecast-request ID;
+- interaction type (`page_view` or `result_view`);
+- page number;
+- absolute result position; and
+- interaction timestamp.
+
+Invalid searches create no telemetry. Telemetry writes are isolated from search delivery: a telemetry database failure is rolled back and logged without blocking valid results.
+
+### Why telemetry is recorded
+
+These records can reveal common query vocabulary, filters that produce zero results, popular time windows, frequently opened surf spots, and the positions at which users engage. Future retrieval can use aggregate signals to improve query suggestions, ranking, and recommendations. Before personalization, the project should add retention rules, user-facing privacy language, result-impression events, and a method for users to delete their activity.
+
+## Database Schema
+
+| Table | Purpose | Primary key | Important attributes | Relationships |
+|---|---|---|---|---|
+| `users` | Local profile for Google-authenticated users | `id` | `google_sub`, email, display name, avatar, timestamps | One-to-many forecast requests, history searches, and interactions |
+| `beaches` | Normalized beach/coastal location | `id` | name, city, state/province, country, latitude, longitude | One-to-many forecasts; one-to-one Wikipedia info |
+| `surf_forecasts` | Persisted hourly APIFreaks conditions | `id` | beach, date, hour, wave/swell/wind-wave values, source, retrieval time | Many-to-one beach; referenced by forecast requests |
+| `forecast_requests` | Authenticated user's successful forecast history | `id` | user, beach, forecast, lookup mode, requested location, surf-break name, timestamp | Many-to-one user, beach, and surf forecast |
+| `forecast_feedback` | User rating and optional comments for a saved forecast request | `id` | forecast request, 1–5 rating, comment, created/updated timestamps | One-to-one forecast request |
+| `wikipedia_spot_info` | Cached Wikipedia API overview and provenance | `id` | page/revision IDs, summary, URL, license, timestamps | One-to-one beach |
+| `history_searches` | One valid profile-history search | `id` | filters, radius usage, sort, result count, timestamp | Many-to-one user; one-to-many interactions |
+| `history_search_interactions` | Search-results engagement event | `id` | type, page, position, timestamp | Many-to-one user and optional search; optional forecast request |
+
+```mermaid
+erDiagram
+    USERS ||--o{ FORECAST_REQUESTS : makes
+    USERS ||--o{ HISTORY_SEARCHES : submits
+    USERS ||--o{ HISTORY_SEARCH_INTERACTIONS : generates
+    BEACHES ||--o{ SURF_FORECASTS : has
+    BEACHES ||--o| WIKIPEDIA_SPOT_INFO : has
+    BEACHES ||--o{ FORECAST_REQUESTS : referenced_by
+    SURF_FORECASTS ||--o{ FORECAST_REQUESTS : referenced_by
+    FORECAST_REQUESTS ||--o| FORECAST_FEEDBACK : receives
+    HISTORY_SEARCHES ||--o{ HISTORY_SEARCH_INTERACTIONS : produces
+    FORECAST_REQUESTS o|--o{ HISTORY_SEARCH_INTERACTIONS : opened_by
+```
+
+`db.create_all()` creates new tables. The idempotent `init-db` and `upgrade-db` commands also apply the supported hourly-forecast schema upgrade. The project does not yet use Alembic/Flask-Migrate.
+
+## Current Features
+
+- **Homepage:** Responsive Breakline landing page, session planner, map/city lookup switch, and forecast report.
+- **API integration:** Hourly APIFreaks forecasts, OpenStreetMap tiles/Overpass/Nominatim data, and Wikipedia MediaWiki Action API extracts.
+- **Web scraping:** No HTML scraping is used in the current implementation. Wikipedia scraping was replaced with the supported API; `wikipedia_scraper.py` remains only as a backward-compatible import wrapper.
+- **MySQL persistence:** Flask-SQLAlchemy models store users, beaches, hourly forecasts, Wikipedia information, request history, searches, and interactions.
+- **CRUD operations:** The application creates user/search/request records, reads stored forecasts and profiles, and updates existing beach/forecast/cache records. Database relationships support cascading cleanup, but there is not yet a user-facing delete or account-edit interface.
+- **Keyword search:** Searches surf-spot, requested-location, beach-name, and city fields.
+- **Filtering:** Inclusive date range, time of day, current-location radius, and mandatory user ownership.
+- **Sorting:** Newest first and surf spot A–Z.
+- **Ranking:** Deterministic recency or alphabetical ordering with stable tie-breakers.
+- **Pagination:** 10 results per page with counts, numbered pages, previous/next links, and automatic return to the results table.
+- **Search telemetry:** Search criteria, result counts, pagination activity, and result views.
+- **Forecast feedback:** Signed-in users can submit or update a 1–5 usefulness rating and optional comments for each saved forecast request; ratings are visible in forecast history.
+- **Google sign-in:** OpenID Connect authorization-code flow with verified email and no stored Google access/refresh tokens.
+- **Location features:** Interactive map, browser geolocation, separate current/forecast markers, nearest named beach or surf break, readable city/state/country, and distance display.
+- **Wikipedia information:** Cached, attributed, plain-text API summaries with revision and license provenance.
+- **Data validation:** Server-side validation of query length, dates, hours, coordinates, radius, sorting, page numbers, and ownership.
+
+## Project Structure
+
+```text
+.
+├── app.py                         # Flask factory and database CLI commands
+├── config.py                      # Environment-based configuration
+├── data/
+│   └── surf_spots.json            # Legacy prototype sample data
+├── docs/
+│   └── screenshots/               # Project screenshots
+├── models/
+│   ├── beach.py                   # Normalized coastal locations
+│   ├── forecast_feedback.py       # Per-request forecast rating and comments
+│   ├── forecast_request.py        # Authenticated forecast history
+│   ├── history_search.py          # Search and interaction telemetry
+│   ├── surf_forecast.py           # Persisted hourly conditions
+│   ├── user.py                    # Google-authenticated local profile
+│   └── wikipedia_spot_info.py     # Cached Wikipedia API content
+├── routes/
+│   ├── auth.py                    # OAuth, profile search, history detail
+│   └── main.py                    # Forecast and about routes
+├── services/
+│   ├── forecast_repository.py     # Beach/forecast upsert logic
+│   ├── marine_weather_service.py  # APIFreaks client and normalization
+│   ├── request_history_repository.py # Search SQL, distance, pagination
+│   ├── search_analytics_repository.py # Telemetry persistence
+│   ├── wikipedia_repository.py    # Wikipedia database cache
+│   ├── wikipedia_service.py       # MediaWiki API client/ranking
+│   └── wikipedia_scraper.py       # Compatibility wrapper; no scraping
+├── static/
+│   ├── map.js                     # Leaflet, geolocation, OSM lookups
+│   ├── profile.js                 # Profile radius geolocation
+│   └── style.css                  # Responsive presentation
+├── templates/
+│   ├── _forecast_report.html
+│   ├── base.html
+│   ├── history_forecast.html
+│   ├── index.html
+│   └── profile.html
+├── tests/                         # Flask, service, auth, search tests
+├── .env.example                   # Credential placeholders
+└── requirements.txt               # Python dependencies
 ```
 
 ## Installation Instructions
 
-Prerequisites:
+### Prerequisites
 
 - Python 3.10 or newer
 - Git
-- A MySQL database and credentials with table-creation permission
-- An APIFreaks account and Marine Weather API key
-- Internet access for APIFreaks, OpenStreetMap, Leaflet assets, and Wikipedia
+- MySQL database/schema and a user allowed to create/modify tables
+- APIFreaks Marine Weather API key
+- Google OAuth web-client credentials for sign-in
+- Internet access for APIFreaks, Google, OpenStreetMap, Leaflet, and Wikipedia
 
-Setup:
+### Clone and configure
 
 ```bash
 git clone <repository-url>
 cd profthoms-it401-final-project
 
 python3 -m venv .venv
-source .venv/bin/activate          # macOS/Linux
-# .venv\Scripts\activate           # Windows PowerShell
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env`, replace the credential placeholders, initialize the tables, and then start the app:
+Replace the placeholders in `.env`; never commit actual credentials.
+
+### Apply database migrations/schema upgrades
+
+For a fresh configured database:
 
 ```bash
 flask --app app init-db
+```
+
+For an existing Breakline database, including the A4 telemetry tables:
+
+```bash
+flask --app app upgrade-db
+```
+
+These commands create application tables but do not create the MySQL database/schema itself.
+
+### Run the application
+
+```bash
 python app.py
 ```
 
-`init-db` creates all application tables in the configured database and applies supported schema upgrades. It does not create the MySQL database itself. Existing installations can run `flask --app app upgrade-db` to create newly added tables and apply schema upgrades.
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000). Browser geolocation works on localhost and requires HTTPS in production.
 
-### Google sign-in setup
-
-1. In Google Cloud, create or select a project and configure its OAuth consent screen.
-2. Create an OAuth client with application type **Web application**.
-3. Add `http://127.0.0.1:5000/auth/google/callback` as an authorized redirect URI for local development. Google requires an exact URI match.
-4. Add the issued client ID and secret to `.env`.
-5. For production, register the HTTPS callback for the deployed domain, such as `https://your-domain.example/auth/google/callback`.
-
-Only the `openid email profile` scopes are requested. Breakline validates the returned ID token through Authlib, requires a verified email, keys accounts by Google's stable `sub` claim, and does not store Google access or refresh tokens.
-
-The default address is [http://127.0.0.1:5000](http://127.0.0.1:5000). If port 5000 is occupied, use Flask's CLI to choose another port:
-
-```bash
-flask --app app run --debug --port 5001
-```
-
-Core dependencies are Flask, Flask-SQLAlchemy, PyMySQL, Requests, python-dotenv, and pytest. Exact minimum versions are declared in `requirements.txt`.
-
-Run the automated tests with:
+Run tests with:
 
 ```bash
 python -m pytest -q
 ```
 
-## Current Features
+### Google OAuth setup
 
-- **API integration:** Retrieves current-date through 16-day hourly forecasts from APIFreaks by city/place or coordinates.
-- **Interactive map:** Uses Leaflet and OpenStreetMap tiles; map coordinates remain hidden from users.
-- **Human-readable map selection:** Resolves the chosen point to a nearby city or region and attempts to identify a named surf break.
-- **Wikipedia API integration:** Searches Wikipedia and retrieves plain-text introductory extracts plus page/revision provenance in one API request, then stores and reuses the most relevant result.
-- **MySQL persistence:** Stores beaches by coordinate and upserts one APIFreaks forecast per beach/date/hour through Flask-SQLAlchemy.
-- **Google sign-in:** Uses the server-side OpenID Connect authorization-code flow for optional user accounts.
-- **Profile history:** Tracks successful forecast requests for authenticated users and shows the latest 100 requests on their profile.
-- **Data cleaning:** Trims input, validates ranges and lengths, normalizes whitespace, truncates summaries, converts meters to feet, and converts degrees to cardinal directions.
-- **User search and filtering:** Supports map or city lookup modes, only accepts current/future dates within the API's 16-day window, and filters OpenStreetMap results to named surfing features rather than shops, schools, or clubs.
-- **Responsive presentation:** Combines forecast data, location context, and optional Wikipedia information in a mobile-friendly interface.
-- **Error handling:** Presents user-safe messages and isolates optional-source failures from the primary forecast.
+1. Create/select a Google Cloud project and configure the OAuth consent screen.
+2. Create an OAuth client of type **Web application**.
+3. Add `http://127.0.0.1:5000/auth/google/callback` for local development.
+4. Add the client ID and secret to `.env`.
+5. Add the exact HTTPS callback URI before production deployment.
+
+Breakline requests only `openid email profile`, requires a verified email, keys users by Google's stable `sub` claim, and does not persist Google tokens.
+
+## Environment Variables
+
+| Variable | Required | Purpose |
+|---|---:|---|
+| `SECRET_KEY` | Recommended | Signs Flask session cookies. Use a strong production value. |
+| `FLASK_ENV` | No | `development` or `production`; defaults to development. |
+| `APIFREAKS_API_KEY` | Yes for forecasts | Server-side APIFreaks Marine Weather credential. |
+| `APIFREAKS_BASE_URL` | No | Overrides the marine API base URL for testing. |
+| `WIKIPEDIA_BASE_URL` | No | Overrides the default English Wikipedia host. |
+| `WIKIPEDIA_USER_AGENT` | Recommended | Identifies the app/operator to Wikimedia. |
+| `WIKIPEDIA_CACHE_DAYS` | No | Database cache lifetime; defaults to 30 days. |
+| `GOOGLE_CLIENT_ID` | Yes for sign-in | Google OAuth web-client ID. |
+| `GOOGLE_CLIENT_SECRET` | Yes for sign-in | Google OAuth web-client secret. |
+| `DB_HOST` | Yes | MySQL hostname; project default is `brian.cikeys.com`. |
+| `DB_PORT` | No | MySQL port; defaults to `3306`. |
+| `DB_NAME` | Yes | Existing MySQL database/schema name. |
+| `DB_USERNAME` | Yes | MySQL username. |
+| `DB_PASSWORD` | Yes | MySQL password. |
+| `DATABASE_URL` | No | Complete SQLAlchemy URL overriding the individual `DB_*` values. |
+
+The project uses `APIFREAKS_API_KEY`, not `RAPIDAPI_KEY`. `.env.example` contains placeholders only.
 
 ## Error Handling
 
-| Failure | Application behavior |
+| Condition | Behavior |
 |---|---|
-| Missing `APIFREAKS_API_KEY` | No external weather request is made. The page explains that the server must be configured. |
-| APIFreaks authentication error (`401`/`403`) | Displays a configuration message without revealing the key. |
-| Invalid APIFreaks request (`400`) | Explains that the coordinates or date were rejected. |
-| Location not found (`404`) | Reports that no forecast was found for the selected location. |
-| Timeout, connection error, invalid JSON, or other API error | Displays a retry-friendly service-unavailable message. |
-| Invalid coordinate | Enforces latitude `-90..90` and longitude `-180..180` on the server. |
-| Invalid location text | Rejects blank values and values longer than 150 characters. |
-| Invalid forecast date | Accepts only today through 16 days ahead. |
-| Missing forecast fields | Displays `Not available` instead of failing template rendering. |
-| Overpass unavailable or no surf-break match | Keeps the originally selected coordinate and falls back to its readable city/region when possible. |
-| Reverse geocoding unavailable | Keeps the hidden coordinates and displays a generic location-selected message. |
-| Wikipedia request failure or timeout | Omits the optional overview; the marine forecast still renders. |
-| Invalid Wikipedia API response or no relevant result | Omits the optional overview; the marine forecast still renders. |
-| Missing database credentials | Forecast persistence remains disabled; configure the `DB_*` settings and run `flask --app app init-db`. |
-| Database connection or write failure | Rolls back the database transaction and logs the failure; the retrieved forecast still renders. |
-| Missing Google credentials | Sign-in remains disabled and a configuration message is shown. Forecasting continues anonymously. |
-| Google denial, invalid state/token, unverified email, or callback failure | No local session or user is created; the user receives a retry-friendly message. |
+| Empty search submission | Shows “Enter at least one search filter,” returns no search results, and records no telemetry. A normal unsubmitted profile visit still shows history. |
+| Invalid keyword | Rejects text over 150 characters; SQL wildcard characters are escaped before matching. |
+| Invalid dates | Marks malformed dates and rejects an end date earlier than the start date. |
+| Invalid time/sort | Accepts only allow-listed values and highlights the affected field. |
+| Invalid radius/location | Requires valid latitude/longitude and a radius from 1 through 100 miles. Non-finite and out-of-range values are rejected. |
+| Invalid page number | Non-numeric, zero, and negative pages fall back to page 1. Pages beyond the result set redirect to the last valid page. |
+| No results | Shows a dedicated no-match state and a clear-filters action. Zero-result valid searches are retained for evaluation. |
+| Database forecast error | Rolls back and logs the failure; a successfully retrieved external forecast can still render. |
+| Telemetry read/write error | Rolls back and logs the analytics failure without blocking valid search results or saved-report views. |
+| API timeout/error | Displays a user-safe retry/configuration message without exposing credentials. Optional Wikipedia/OSM failures degrade gracefully. |
+| Unauthorized history access | Owner-scoped queries return `404` rather than exposing another user's record. |
 
-## Ethical Considerations
+## Search Evaluation
 
-- **Attribution:** OpenStreetMap attribution remains visible on the map. Every displayed Wikipedia summary names Wikipedia contributors, links to the source article and CC BY-SA 4.0 license, and notes that the text was shortened.
-- **Credentials:** APIFreaks and MySQL credentials remain server-side in `.env` and are never included in HTML, JavaScript, screenshots, or documentation.
-- **Authentication privacy:** Google tokens are used only during the callback and are not stored. Profiles retain the minimum basic identity fields needed for login plus successful request history; anonymous requests are not associated with a user.
-- **Rate limits:** Map lookups occur only after direct user actions. Requests use timeouts and cancellation, and the application does not bulk-download map or geocoding data. Nominatim's public service requires an application-wide maximum of one request per second; a production deployment should add server-side throttling/caching or use a dedicated provider.
-- **Responsible API use:** The Wikipedia service uses an operator-identifying user agent, serial GET requests, Wikimedia cache hints, a 30-day database cache, a small memory cache, limited displayed text, and fails closed when expected data is missing.
-- **Source limitations:** Wikipedia and OpenStreetMap are community-maintained sources. Their presence does not guarantee that a surf break is mapped, that an article exists, or that the information is complete.
+The automated A4 evaluation uses a controlled authenticated history containing The Wedge/Newport Beach at 05:00, Malibu Point at 12:00, and Sunset Cliffs/San Diego at 17:00. Dates are relative to the test execution date.
 
-## Known Limitations
+| # | Test query | Expected | Actual automated result | Precision/recall observation | Ranking observation |
+|---:|---|---|---|---|---|
+| 1 | Keyword `wEdGe` | The Wedge only | The Wedge returned; Malibu and Sunset excluded | High precision and complete recall for an exact substring despite case differences | Single result; ranking not material |
+| 2 | Keyword `Newport` | The Wedge via `Beach.city` | The Wedge returned | Demonstrates recall across normalized city even when the displayed spot name differs | Single result |
+| 3 | Time `afternoon` | Malibu Point at 12:00 | Malibu returned; 05:00 and 17:00 records excluded | Exact precision for the documented `12–16` boundary | Default recency retained within the filtered set |
+| 4 | Date range tomorrow through +2 days | Malibu and Sunset | Both returned; today's Wedge excluded | Inclusive bounds produced complete recall for the controlled set | Newest request first unless A–Z selected |
+| 5 | Radius 10 miles from Newport test coordinates | The Wedge only | The Wedge returned; Malibu and San Diego excluded | Correct geographic filtering for the controlled coordinates | Radius filters but does not yet rank nearest first |
 
-- Public Overpass and Nominatim services are best-effort and may be slow, unavailable, or rate-limited.
-- OpenStreetMap surf-break coverage varies by region. The nearest mapped `sport=surfing` feature may not be the user's intended break.
-- Reverse geocoding finds the closest suitable mapped object, which may occasionally return a neighboring municipality.
-- Wikipedia search ranking may select a city article when a dedicated surf-break article does not exist.
-- The English Wikipedia is the only configured Wikipedia language source.
-- Hourly APIFreaks data is shown; minutely forecasts are not exposed.
-- Surf suitability is not scored. Break orientation, bathymetry, local hazards, wind weather, and tides require additional sources.
-- External results are fetched during a page request, so slow sources can increase response time.
-- There is no favorites interface, profile-editing interface, account-deletion workflow, migration framework, or automatic stale-forecast refresh yet.
+### Evaluation summary
+
+- **Expected versus actual:** All five controlled queries match their expected sets; the complete suite currently reports 35 passing tests.
+- **Precision:** Strong for exact substrings and structured filters because each condition maps directly to stored fields.
+- **Recall:** Strong within the controlled data, but production recall will fall for synonyms, misspellings, abbreviations, and unmapped aliases.
+- **Ranking quality:** Stable and understandable, but not relevance-aware. Recency and A–Z are useful presentation orders rather than learned relevance.
+- **Planned improvements:** Build a larger labeled evaluation set; record result impressions; add aliases, normalization, full-text or trigram matching; compare nearest-first and engagement-informed ranking; monitor zero-result queries.
 
 ## Screenshots
 
-### Homepage
+### Existing application evidence
+
+#### Homepage
 
 ![Breakline homepage](docs/screenshots/homepage.png)
 
-### API results
+#### Forecast form and API result
 
-![APIFreaks marine forecast results](docs/screenshots/api-results.png)
+![APIFreaks marine forecast form and result](docs/screenshots/api-results.png)
 
-### Scraped results
+#### Combined map, forecast, and Wikipedia API interface
 
-![Wikipedia surf-break information](docs/screenshots/scraped-results.png)
+![Map, forecast, and Wikipedia information](docs/screenshots/combined-interface.png)
 
-### Combined interface
+#### Wikipedia API result
 
-![Map, forecast, and Wikipedia information combined](docs/screenshots/combined-interface.png)
+The filename is retained from the pre-API prototype; the current application does not scrape Wikipedia HTML.
 
-## Project Structure
+![Wikipedia API surf-break information](docs/screenshots/scraped-results.png)
 
-```text
-.
-├── app.py
-├── config.py
-├── data/
-├── models/
-│   ├── beach.py
-│   ├── forecast_request.py
-│   ├── surf_forecast.py
-│   ├── user.py
-│   └── wikipedia_spot_info.py
-├── routes/
-│   ├── auth.py
-│   └── main.py
-├── services/
-│   ├── marine_weather_service.py
-│   ├── forecast_repository.py
-│   ├── request_history_repository.py
-│   ├── wikipedia_service.py
-│   ├── wikipedia_repository.py
-│   └── wikipedia_scraper.py  # backward-compatible import
-├── static/
-│   ├── map.js
-│   └── style.css
-├── templates/
-├── tests/
-├── .env.example
-└── requirements.txt
-```
+### A4 search screenshot checklist
 
-## Future Database Work
+The authenticated A4 screens must be captured after Google sign-in and after `upgrade-db` creates the telemetry tables. Add the following real screenshots to `docs/screenshots/` before final submission:
 
-The database-backed information layer stores beaches and hourly forecasts. Planned extensions include:
+| Required evidence | Target filename |
+|---|---|
+| Search form | `search-form.png` |
+| Search results | `search-results.png` |
+| Filtered results | `filtered-results.png` |
+| Sorted/ranked results | `sorted-results.png` |
+| Pagination | `pagination.png` |
+| No-results state | `no-results.png` |
+| Search-history/telemetry database evidence | `search-telemetry.png` |
 
-- Add source identifiers and aliases to normalized beach records.
-- Read still-current forecasts from the database before making duplicate API calls.
-- Add automatic background refreshes for stale Wikipedia information.
-- Save OpenStreetMap surf-break matches and reverse-geocoded labels while respecting source terms.
-- Add favorite breaks, saved forecast preferences, profile editing, and account deletion.
-- Track external API failures for maintenance without storing secrets or unnecessary personal data.
-- Add schema migrations and a scheduled refresh strategy for stale external information.
+Do not substitute mockups for these screenshots; they should show the running authenticated application and actual database evidence.
 
-Persistent records will distinguish local user/application data from externally acquired data and retain source, retrieval time, and attribution metadata for every imported record.
+## Design Decisions
+
+- **Searchable fields:** Names and user-entered location labels match the words users naturally remember. Numeric forecast measurements were excluded from keyword search because structured comparisons would be clearer.
+- **Filters:** Date, hour group, and radius have unambiguous types and map efficiently to SQL predicates. User ID is mandatory for privacy.
+- **Ranking:** Recency is the default because recent activity is usually most useful in a history view. A–Z supports known-item lookup. Stable ID tie-breaking prevents records from moving unpredictably between pages.
+- **Pagination size:** Ten rows keep the profile scannable on desktop and mobile, limit ORM hydration, and provide enough data per page without a long scroll.
+- **Telemetry:** Query/result counts expose retrieval gaps, while page and result-view interactions provide early engagement signals. Precise current coordinates are deliberately not retained.
+- **API over scraping:** Wikipedia's MediaWiki API offers structured extracts, revision metadata, predictable error handling, and clearer policy compliance than parsing HTML.
+
+## Known Limitations
+
+- Keyword matching does not understand synonyms, misspellings, or semantic similarity.
+- Singular and plural forms may differ.
+- Ranking is rule-based and does not weight matching fields.
+- MySQL full-text indexes are not currently used.
+- Search is not personalized and telemetry does not yet affect live ranking.
+- Result impressions and dwell time are not recorded, so a click cannot yet be compared reliably with every result the user saw.
+- Radius filtering is not nearest-first sorting.
+- Offset pagination may become slower for very large histories.
+- Public Overpass and Nominatim services are best-effort and may be unavailable or rate-limited.
+- OpenStreetMap and Wikipedia coverage varies by region.
+- There is no user-facing favorite, delete, profile-edit, or account-deletion interface.
+- The project uses idempotent schema commands rather than a versioned migration framework.
+
+## Future Work
+
+- Add result-impression telemetry, dwell time, favorites, and explicit feedback.
+- Add semantic search and embeddings for surf-spot aliases, synonyms, and misspellings.
+- Add personalized and engagement-informed ranking with privacy controls.
+- Recommend beaches, forecast windows, and Wikipedia content from prior searches and interactions.
+- Add query suggestions, autocomplete, recent-search shortcuts, and zero-result recovery.
+- Evaluate MySQL full-text search, trigram/fuzzy search, and nearest-first geographic ordering.
+- Add retrieval-augmented generation for cited surf-spot and safety summaries.
+- Add Alembic/Flask-Migrate, telemetry retention/deletion policies, and an account-deletion workflow.
+- Build a larger labeled search benchmark and monitor precision, recall, click-through rate, and zero-result rate over time.
+
+## External Sources and Responsible Use
+
+| Source | Purpose |
+|---|---|
+| APIFreaks Marine Weather API | Hourly marine conditions by coordinates or location text |
+| OpenStreetMap tiles | Leaflet map presentation |
+| OpenStreetMap Overpass | Nearest named surf break or beach |
+| OpenStreetMap Nominatim | City/state/country reverse geocoding |
+| English Wikipedia MediaWiki API | Plain-text introductory surf-spot context and provenance |
+
+Breakline keeps credentials server-side, displays OpenStreetMap and Wikipedia attribution, uses timeouts/cancellation, caches Wikipedia content, and treats community-maintained location information as best-effort. Forecasts are for planning only; users should always verify local conditions and hazards.

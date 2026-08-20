@@ -81,6 +81,7 @@ def register_routes(app):
         max_date = date.today() + timedelta(days=16)
         error = None
         forecast = None
+        history_item = None
         wikipedia_info = None
 
         try:
@@ -153,8 +154,8 @@ def register_routes(app):
                 location_data = raw_forecast.get("location", {})
                 beach_name = (
                     surf_break_name
-                    or location_data.get("city")
                     or selected_city
+                    or location_data.get("city")
                     or location_input.strip()
                     or "Unnamed beach"
                 )
@@ -172,7 +173,11 @@ def register_routes(app):
                             fallback_longitude=(
                                 longitude_input if lookup_mode == "coordinates" else None
                             ),
-                            update_beach_name=bool(surf_break_name),
+                            update_beach_name=bool(
+                                surf_break_name
+                                or (lookup_mode == "coordinates" and selected_city)
+                            ),
+                            use_fallback_coordinates=(lookup_mode == "coordinates"),
                         )
                     except (SQLAlchemyError, ValueError):
                         db.session.rollback()
@@ -182,7 +187,7 @@ def register_routes(app):
 
                 if saved_forecast is not None and current_user.is_authenticated:
                     try:
-                        track_forecast_request(
+                        history_item = track_forecast_request(
                             current_user.id,
                             saved_forecast,
                             lookup_mode=lookup_mode,
@@ -214,9 +219,14 @@ def register_routes(app):
                         )
 
                 if wikipedia_info is None:
+                    wikipedia_city = (
+                        selected_city
+                        if lookup_mode == "coordinates" and selected_city
+                        else location_data.get("city") or location_input
+                    )
                     wikipedia_info = wikipedia_service.get_spot_info(
                         surf_break=surf_break_name or None,
-                        city=location_data.get("city") or location_input,
+                        city=wikipedia_city,
                     )
                     if wikipedia_info and saved_forecast is not None:
                         try:
@@ -241,6 +251,7 @@ def register_routes(app):
             surf_break_name=surf_break_name,
             lookup_mode=lookup_mode,
             forecast=forecast,
+            history_item=history_item,
             wikipedia_info=wikipedia_info,
             error=error,
             forecast_date=forecast_date,
