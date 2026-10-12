@@ -243,6 +243,7 @@ erDiagram
 - Python 3.10 or newer
 - Git
 - MySQL database/schema and a user allowed to create/modify tables
+- SSH access to the CIKeys host when connecting to MySQL from a local machine
 - APIFreaks Marine Weather API key
 - Google OAuth web-client credentials for sign-in
 - Internet access for APIFreaks, Google, OpenStreetMap, Leaflet, and Wikipedia
@@ -262,6 +263,108 @@ cp .env.example .env
 ```
 
 Replace the placeholders in `.env`; never commit actual credentials.
+
+### Connect to CIKeys through SSH
+
+When direct MySQL IP whitelisting is unavailable, use an SSH tunnel through the
+CIKeys account during local development and point Flask at the tunnel. SSH
+authenticates the tunnel; the existing MySQL username and password still
+authenticate the database connection.
+
+#### Authorize the SSH key
+
+This project currently uses the CIKeys account `briancik` at
+`brian.cikeys.com`. The example local key pair is:
+
+```text
+~/.ssh/cikeys       # private key: keep only on the local computer
+~/.ssh/cikeys.pub   # public key: safe to upload to the server
+```
+
+In cPanel, open **Security > SSH Access > Manage SSH Keys**, import or upload the
+public key, and then explicitly authorize it. Uploading and authorizing are
+separate operations. If cPanel access is unavailable, ask the CIKeys
+administrator to enable shell access and add the public key to the `briancik`
+account's `~/.ssh/authorized_keys` file.
+
+Never upload, email, or commit the private key or its passphrase. Restrict the
+private key's local permissions:
+
+```bash
+chmod 600 ~/.ssh/cikeys
+```
+
+On macOS, unlock a passphrase-protected key and retain it in the login keychain:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/cikeys
+```
+
+On Linux, use `ssh-add ~/.ssh/cikeys` after starting an SSH agent if one is not
+already available.
+
+Verify interactive SSH access before attempting the database tunnel:
+
+```bash
+ssh -i ~/.ssh/cikeys briancik@brian.cikeys.com
+```
+
+Use `exit` to close the remote shell after a successful test. If the key has not
+yet been installed and password-based SSH login is available, it can be copied
+with:
+
+```bash
+ssh-copy-id -i ~/.ssh/cikeys.pub briancik@brian.cikeys.com
+```
+
+The message `All keys were skipped because they already exist on the remote
+system` means the public key is already installed; do not force another copy.
+
+#### Start the MySQL tunnel
+
+Run the tunnel in a dedicated terminal window:
+
+```bash
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -i ~/.ssh/cikeys \
+  -L 3307:127.0.0.1:3306 \
+  briancik@brian.cikeys.com
+```
+
+After authentication, a successful tunnel remains open without displaying a
+shell prompt. Keep that terminal running while using the app. Press `Control-C`
+to stop the tunnel.
+
+For local development through this tunnel, set the database endpoint in `.env`
+to:
+
+```dotenv
+DB_HOST=127.0.0.1
+DB_PORT=3307
+```
+
+Keep the existing `DB_NAME`, `DB_USERNAME`, and `DB_PASSWORD` values. Do not add
+the SSH private-key path or passphrase to `.env`. To check the local tunnel before
+starting Flask, run:
+
+```bash
+nc -z 127.0.0.1 3307 && echo "SSH tunnel is available"
+```
+
+When the Flask application itself runs on the CIKeys server, no SSH tunnel is
+needed. Use `DB_HOST=127.0.0.1` and `DB_PORT=3306` in the server-side environment.
+The `3307` setting is only the local end of the development tunnel.
+
+Common SSH and tunnel failures:
+
+| Symptom | Likely cause and action |
+|---|---|
+| `Permission denied (publickey,...)` | Confirm the SSH username, ensure the uploaded key is authorized, and unlock the matching private key with `ssh-add`. |
+| SSH accepts the key but cannot sign in | Enter the private-key passphrase locally or add the key to the SSH agent; never store the passphrase in the project. |
+| `bind ... Address already in use` | Another process is using local port `3307`; use the existing tunnel or stop that process before starting another. |
+| Flask reports that MySQL is unavailable | Confirm the tunnel terminal is still running and that local `.env` uses `127.0.0.1:3307`. |
+| SSH works but forwarding fails | Ask the hosting administrator to confirm TCP forwarding is enabled and that MySQL is reachable as `127.0.0.1:3306` from the SSH host. |
 
 ### Apply database migrations/schema upgrades
 
