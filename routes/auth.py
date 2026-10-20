@@ -26,6 +26,9 @@ from services.search_analytics_repository import (
     record_history_search,
 )
 from services.wikipedia_repository import get_wikipedia_info
+from services.intelligence_prompts import PROMPT_VERSION
+from services.intelligence_repository import get_cached_intelligence
+from services.intelligence_service import build_retrieved_context, context_hash
 
 
 login_manager = LoginManager()
@@ -429,13 +432,40 @@ def register_auth_routes(app):
             forecast["surf_break"] = True
         forecast["place_name"] = display_name
 
+        wikipedia_info = None
+        try:
+            wikipedia_info = get_wikipedia_info(beach.id)
+            intelligence_context = build_retrieved_context(saved, wikipedia_info)
+            forecast_intelligence = (
+                get_cached_intelligence(
+                    saved.id,
+                    PROMPT_VERSION,
+                    app.config["AI_SERVICE_MODEL"],
+                    context_hash(intelligence_context),
+                )
+                if intelligence_context is not None
+                else None
+            )
+            intelligence_error = (
+                None
+                if forecast_intelligence is not None
+                else "No generated outlook is stored for the current forecast context."
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            forecast_intelligence = None
+            intelligence_error = "Stored AI outlook data could not be read."
+            app.logger.warning("Stored AI outlook could not be read.", exc_info=True)
+
         return render_template(
             "history_forecast.html",
             history_item=history_item,
             forecast=forecast,
             forecast_date=saved.forecast_date,
             forecast_time=time(hour=saved.forecast_hour),
-            wikipedia_info=get_wikipedia_info(beach.id),
+            wikipedia_info=wikipedia_info,
+            forecast_intelligence=forecast_intelligence,
+            intelligence_error=intelligence_error,
         )
 
     @app.post("/profile/history/<int:request_id>/feedback")

@@ -53,6 +53,10 @@ class SurfForecast(db.Model):
     )
 
     beach: Mapped["Beach"] = relationship(back_populates="forecasts")
+    intelligence: Mapped[list["ForecastIntelligence"]] = relationship(
+        back_populates="forecast", cascade="all, delete-orphan"
+    )
 
 
 from models.beach import Beach  # noqa: E402
+from models.forecast_intelligence import ForecastIntelligence  # noqa: E402

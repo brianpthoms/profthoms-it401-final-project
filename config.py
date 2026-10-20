@@ -40,6 +40,15 @@ class Config:
     # External API keys / service config
     API_KEY = os.environ.get("API_KEY")
     AI_SERVICE_API_KEY = os.environ.get("AI_SERVICE_API_KEY")
+    AI_SERVICE_BASE_URL = os.environ.get(
+        "AI_SERVICE_BASE_URL", "https://api.openai.com/v1"
+    )
+    AI_SERVICE_MODEL = os.environ.get("AI_SERVICE_MODEL", "gpt-4o-mini")
+    AI_SERVICE_TIMEOUT = float(os.environ.get("AI_SERVICE_TIMEOUT", "20"))
+    AI_SERVICE_MAX_RETRIES = int(os.environ.get("AI_SERVICE_MAX_RETRIES", "2"))
+    AI_SERVICE_RETRY_BACKOFF = float(
+        os.environ.get("AI_SERVICE_RETRY_BACKOFF", "0.25")
+    )
     APIFREAKS_API_KEY = os.environ.get("APIFREAKS_API_KEY")
     APIFREAKS_BASE_URL = os.environ.get(
         "APIFREAKS_BASE_URL", "https://api.apifreaks.com/v1.0"

@@ -16,10 +16,16 @@ from models.user import User
 from models.wikipedia_spot_info import WikipediaSpotInfo
 from services.marine_weather_service import MarineWeatherService
 from services.wikipedia_service import WikipediaService
+from routes.main import forecast_date_window
+from services.surf_spot_repository import search_surf_spots, seed_surf_spots
 
 
 @pytest.fixture
 def client(monkeypatch):
+    monkeypatch.setattr(
+        "routes.main.forecast_date_window",
+        lambda: (date.today(), date.today() + timedelta(days=15)),
+    )
     monkeypatch.setattr(WikipediaService, "get_spot_info", lambda *args, **kwargs: None)
     app = create_app(
         "development",
@@ -38,6 +44,17 @@ def client(monkeypatch):
         db.drop_all()
 
 
+def test_forecast_date_window_uses_utc_provider_day():
+    from datetime import datetime, timezone
+
+    first_date, last_date = forecast_date_window(
+        datetime(2026, 10, 13, 0, 11, tzinfo=timezone.utc)
+    )
+
+    assert first_date.isoformat() == "2026-10-13"
+    assert last_date.isoformat() == "2026-10-28"
+
+
 def test_index(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -54,6 +71,8 @@ def test_forecast_form(client):
     assert b'name="lookup"' in response.data
     assert b'name="surf_break_name"' in response.data
     assert b'name="selected_city"' in response.data
+    assert b'id="surf-spot-id"' in response.data
+    assert b'id="surf-spot-suggestions"' in response.data
     assert b'id="location-map"' in response.data
     assert b'id="use-forecast-location"' in response.data
     assert b'action="/#forecast-report"' in response.data
@@ -71,6 +90,76 @@ def test_forecast_form(client):
     assert b"L.circleMarker" in map_script.data
     assert b"Your location:" in map_script.data
     assert b"Approximately" in map_script.data
+    assert b"/api/surf-spots?q=" in map_script.data
+
+
+def test_demo_surf_spot_catalog_searches_aliases(client):
+    with client.application.app_context():
+        seed_path = Path(client.application.config["DATA_DIR"]) / "surf_spots_demo.json"
+        created, updated = seed_surf_spots(seed_path)
+        assert created == 12
+        assert updated == 0
+        assert search_surf_spots("wedge")[0]["name"] == "The Wedge"
+        assert search_surf_spots("lowers")[0]["name"] == "Lower Trestles"
+        assert search_surf_spots("Manhattan Beach")[0]["name"] == "El Porto"
+        assert search_surf_spots("El Segundo")[0]["name"] == "El Porto"
+
+    response = client.get("/api/surf-spots?q=countyline")
+    assert response.status_code == 200
+    assert response.get_json()["spots"][0]["name"] == "County Line"
+
+
+def test_exact_catalog_name_uses_stored_coordinates_without_selection(
+    client, monkeypatch
+):
+    captured = {}
+    with client.application.app_context():
+        seed_path = Path(client.application.config["DATA_DIR"]) / "surf_spots_demo.json"
+        seed_surf_spots(seed_path)
+        assert search_surf_spots("the wedge")[0]["id"]
+
+    def fake_forecast(self, latitude, longitude, forecast_date, forecast_hour):
+        captured.update(latitude=latitude, longitude=longitude)
+        return {
+            "location": {
+                "city": "Newport Beach",
+                "state_prov": "California",
+                "country_name": "United States",
+                "latitude": str(latitude),
+                "longitude": str(longitude),
+            },
+            "conditions": {"wave_height_max": 1.5, "wave_period_max": 12},
+        }
+
+    def unexpected_location_lookup(*args, **kwargs):
+        raise AssertionError("Catalog spots must use stored coordinates.")
+
+    monkeypatch.setattr(MarineWeatherService, "get_hourly_forecast", fake_forecast)
+    monkeypatch.setattr(
+        MarineWeatherService,
+        "get_hourly_forecast_by_location",
+        unexpected_location_lookup,
+    )
+    response = client.get(
+        "/",
+        query_string={
+            "lookup": "location",
+            "location": "The Wedge",
+            "date": date.today().isoformat(),
+            "time": "10:00",
+        },
+    )
+
+    assert response.status_code == 200
+    assert b"The Wedge" in response.data
+    assert b"Near Newport Beach, California, United States" in response.data
+    assert b"Selected The Wedge" in response.data
+    assert captured == {"latitude": 33.5931, "longitude": -117.8817}
+
+    with client.application.app_context():
+        beach = db.session.execute(db.select(Beach)).scalar_one()
+        assert beach.name == "The Wedge"
+        assert float(beach.latitude) == pytest.approx(33.5931)
 
 
 def test_forecast_results(client, monkeypatch):

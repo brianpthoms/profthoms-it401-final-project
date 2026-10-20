@@ -55,6 +55,7 @@
     <form id="forecast-form" action="{{ url_for('index') }}#forecast-report" method="get">
     <input id="surf-break-name" type="hidden" name="surf_break_name" value="{{ surf_break_name }}">
     <input id="selected-city" type="hidden" name="selected_city" value="{{ selected_city }}">
+    <input id="surf-spot-id" type="hidden" name="surf_spot_id" value="{{ surf_spot_id }}">
     <fieldset class="lookup-switch">
         <legend>How would you like to find your forecast?</legend>
         <label>
@@ -91,13 +92,15 @@
     <section class="city-picker" id="city-picker" {% if lookup_mode != 'location' %}hidden{% endif %}>
         <div>
             <p class="map-step">01 · Search a place</p>
-            <h3>Enter a city or coastal location</h3>
-            <p>Try a city and region or country for a more precise match, such as “Santa Cruz, California.”</p>
+            <h3>Find a surf spot or coastal city</h3>
+            <p>Choose a known break from the local catalog, or enter a city and full region such as “Santa Cruz, California.”</p>
         </div>
-        <label>
-            <span>City or place</span>
-            <input id="location" type="text" name="location" value="{{ location }}" maxlength="150" placeholder="Santa Cruz, California" autocomplete="address-level2" {% if lookup_mode != 'location' %}disabled{% else %}required{% endif %}>
-        </label>
+        <div class="spot-search">
+            <label for="location">Surf spot or coastal city</label>
+            <input id="location" type="text" name="location" value="{{ location }}" maxlength="150" placeholder="Try The Wedge or County Line" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="surf-spot-suggestions" aria-expanded="false" {% if lookup_mode != 'location' %}disabled{% else %}required{% endif %}>
+            <div id="surf-spot-suggestions" class="spot-suggestions" role="listbox" hidden></div>
+            <small id="spot-search-status" aria-live="polite">{% if surf_spot_id and surf_break_name %}Selected {{ surf_break_name }}{% if selected_city %} · {{ selected_city }}{% endif %}{% else %}Known spots use verified local coordinates.{% endif %}</small>
+        </div>
     </section>
 
     <div class="forecast-form{% if lookup_mode == 'location' %} city-mode{% endif %}">

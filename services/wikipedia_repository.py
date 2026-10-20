@@ -19,6 +19,7 @@ def _parse_timestamp(value):
 
 def _present_wikipedia_info(record):
     return {
+        "id": record.id,
         "title": record.title,
         "summary": record.summary,
         "url": record.url,

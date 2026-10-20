@@ -12,6 +12,8 @@ db = SQLAlchemy(model_class=Base)
 from models.beach import Beach  # noqa: E402, F401
 from models.surf_forecast import SurfForecast  # noqa: E402, F401
 from models.wikipedia_spot_info import WikipediaSpotInfo  # noqa: E402, F401
+from models.forecast_intelligence import ForecastIntelligence  # noqa: E402, F401
+from models.surf_spot import SurfSpot, SurfSpotAlias  # noqa: E402, F401
 from models.user import User  # noqa: E402, F401
 from models.forecast_request import ForecastRequest  # noqa: E402, F401
 from models.forecast_feedback import ForecastFeedback  # noqa: E402, F401

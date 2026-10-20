@@ -1,3 +1,5 @@
+import re
+
 import requests
 
 
@@ -66,6 +68,21 @@ class MarineWeatherService:
                 "No wave conditions were returned for that location and hour."
             )
 
+        marine_fields = (
+            "wave_height",
+            "wave_direction",
+            "wave_period",
+            "swell_wave_height",
+            "swell_wave_direction",
+            "swell_wave_period",
+            "wind_wave_height",
+        )
+        if all(selected.get(field) is None for field in marine_fields):
+            raise MarineWeatherError(
+                "No marine conditions were returned for that place. "
+                "Choose a coastal city or select a surf spot from the catalog."
+            )
+
         return {
             "location": payload.get("location", {}),
             "conditions": {
@@ -115,7 +132,23 @@ class MarineWeatherService:
             elif status_code == 404:
                 message = "No marine forecast was found for those coordinates."
             elif status_code == 400:
-                message = "The marine forecast service rejected those coordinates or date."
+                provider_message = ""
+                try:
+                    provider_message = exc.response.json().get("message", "")
+                except (AttributeError, TypeError, ValueError):
+                    pass
+                date_window = re.fullmatch(
+                    r"Forecast date range must be within "
+                    r"(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})",
+                    provider_message,
+                )
+                if date_window:
+                    message = (
+                        "Marine forecasts are currently available from "
+                        f"{date_window.group(1)} through {date_window.group(2)}."
+                    )
+                else:
+                    message = "The marine forecast service rejected those coordinates or date."
             else:
                 message = "The marine forecast service is currently unavailable. Please try again."
             raise MarineWeatherError(message) from exc

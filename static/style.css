@@ -90,8 +90,16 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .city-picker[hidden], .location-picker[hidden] { display: none; }
 .city-picker h3 { margin: 8px 0 10px; font-size: 26px; }
 .city-picker p:last-child { max-width: 520px; margin: 0; color: var(--ink-soft); line-height: 1.6; }
-.city-picker label > span { display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--ink-soft); }
+.city-picker label > span, .spot-search > label { display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; color: var(--ink-soft); }
 .city-picker input { width: 100%; height: 60px; padding: 0 16px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.spot-search { position: relative; }
+.spot-search > small { display: block; margin-top: 8px; color: var(--ink-soft); font-size: 12px; }
+.spot-suggestions { position: absolute; z-index: 1001; top: calc(100% - 22px); right: 0; left: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 0 0 7px 7px; background: white; box-shadow: 0 16px 35px rgba(5,42,72,.18); }
+.spot-suggestion { width: 100%; padding: 12px 15px; display: block; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: white; text-align: left; cursor: pointer; }
+.spot-suggestion:last-child { border-bottom: 0; }
+.spot-suggestion:hover, .spot-suggestion:focus { outline: 0; background: var(--foam); }
+.spot-suggestion strong, .spot-suggestion small { display: block; }
+.spot-suggestion small { margin-top: 3px; color: var(--ink-soft); }
 .forecast-form { display: grid; grid-template-columns: .8fr .8fr 1fr auto; gap: 15px; padding: 22px; background: white; border: 1px solid var(--line); box-shadow: 0 18px 60px rgba(11,43,75,.09); }
 .forecast-form.city-mode { grid-template-columns: 1fr auto; }
 .forecast-form.city-mode .coordinate-field { display: none; }
@@ -107,6 +115,19 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
 .forecast-overview h3 { margin: 7px 0; font-size: 26px; }
 .rating { margin-top: 28px; font-size: 13px; font-weight: 600; }
 .rating span { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #70db9b; box-shadow: 0 0 0 4px rgba(112,219,155,.12); }
+.rating strong { color: var(--mint); }
+.rating-unavailable { color: rgba(255,255,255,.55); }
+.rating-unavailable span { background: #93a4b2; box-shadow: 0 0 0 4px rgba(147,164,178,.12); }
+.intelligence-card { display: grid; grid-template-columns: minmax(190px, .55fr) 1.45fr; gap: 44px; margin-top: 22px; padding: 30px 34px; border: 1px solid var(--line); border-top: 4px solid var(--mint); border-radius: 8px; background: white; }
+.intelligence-card h3 { margin: 8px 0 4px; color: var(--ocean-dark); font-size: 30px; }
+.intelligence-card p { line-height: 1.65; }
+.intelligence-card > div:last-child > p:first-child { margin-top: 0; }
+.intelligence-confidence { margin: 0; color: var(--ocean); font-size: 13px; font-weight: 700; }
+.missing-info { color: var(--ink-soft); font-size: 13px; }
+.intelligence-json { margin: 14px 0; }
+.intelligence-json summary { color: var(--ocean); cursor: pointer; font-size: 13px; font-weight: 700; }
+.intelligence-json pre { margin: 10px 0 0; padding: 14px; overflow-x: auto; border-radius: 5px; background: var(--ink); color: #dff8ff; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+.intelligence-status { margin: 16px 0 0; padding: 14px 16px; border-left: 4px solid #93a4b2; background: #edf2f5; color: var(--ink-soft); font-size: 13px; }
 .forecast-feedback { margin-top: 22px; border: 1px solid var(--line); border-radius: 8px; background: white; overflow: hidden; }
 .forecast-feedback summary { min-height: 70px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; cursor: pointer; list-style: none; }
 .forecast-feedback summary::-webkit-details-marker { display: none; }
@@ -404,4 +425,5 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; }
     .hero-stat-card { min-height: 150px; }
     .forecast-form, .forecast-form.city-mode { grid-template-columns: 1fr; }
     .spot-story { padding: 28px; }
+    .intelligence-card { grid-template-columns: 1fr; gap: 16px; padding: 26px; }
 }

@@ -4,7 +4,14 @@
         <p class="forecast-date">{{ forecast_date.strftime('%A · %B %d') }} · {{ forecast_time.strftime('%-I:00 %p') }}</p>
         <h3>{{ forecast.place_name }}</h3>
         <p class="region">{% if forecast.surf_break %}Near {{ forecast.area_name }}{% else %}Marine conditions for the selected area{% endif %}</p>
-        <div class="rating"><span></span>Hourly marine outlook</div>
+        <div class="rating{% if not forecast_intelligence %} rating-unavailable{% endif %}">
+            <span></span>
+            {% if forecast_intelligence %}
+            <strong>{{ forecast_intelligence.rating }}</strong> · Hourly marine outlook
+            {% else %}
+            Hourly marine outlook unavailable
+            {% endif %}
+        </div>
     </div>
     <div class="wave-reading">
         <span>Wave height</span>
@@ -18,6 +25,34 @@
         <div><dt>Wind wave</dt><dd>{{ forecast.wind_wave }}</dd></div>
     </dl>
 </article>
+{% if forecast_intelligence %}
+<article class="intelligence-card" aria-labelledby="intelligence-heading">
+    <div>
+        <p class="eyebrow eyebrow-dark"><span></span> AI-generated outlook</p>
+        <h3 id="intelligence-heading">{{ forecast_intelligence.rating }}</h3>
+        <p class="intelligence-confidence">{{ (forecast_intelligence.confidence * 100)|round|int }}% confidence</p>
+    </div>
+    <div>
+        <p>{{ forecast_intelligence.summary }}</p>
+        {% if forecast_intelligence.missing_info %}
+        <p class="missing-info"><strong>Missing information:</strong> {{ forecast_intelligence.missing_info|join(', ') }}.</p>
+        {% endif %}
+        <details class="intelligence-json">
+            <summary>View structured JSON</summary>
+            <pre>{{ {
+                "rating": forecast_intelligence.rating,
+                "summary": forecast_intelligence.summary,
+                "confidence": forecast_intelligence.confidence,
+                "missing_info": forecast_intelligence.missing_info
+            }|tojson(indent=2) }}</pre>
+        </details>
+        <p class="source-note">Generated from the saved hourly forecast and cached Wikipedia summary · Prompt {{ forecast_intelligence.prompt_version }} · Model {{ forecast_intelligence.model }}{% if forecast_intelligence.stored %} · Stored{% endif %}</p>
+    </div>
+</article>
+{% endif %}
+{% if intelligence_error %}
+<p class="intelligence-status" role="status"><strong>AI outlook unavailable.</strong> {{ intelligence_error }}</p>
+{% endif %}
 <p class="demo-note">Marine forecast data provided by APIFreaks. Wave heights are converted to feet.</p>
 {% if history_item %}
 <details class="forecast-feedback" id="forecast-feedback" {% if request.args.get('feedback') == 'open' %}open{% endif %}>

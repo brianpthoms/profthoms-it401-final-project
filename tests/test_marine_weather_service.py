@@ -151,3 +151,51 @@ def test_hourly_forecast_reports_missing_hour(monkeypatch):
         MarineWeatherService("secret-key").get_hourly_forecast(
             33.65, -117.99, requested_date, 6
         )
+
+
+def test_bad_request_preserves_safe_provider_date_window(monkeypatch):
+    monkeypatch.setattr(
+        "services.marine_weather_service.requests.get",
+        lambda *args, **kwargs: FakeResponse(
+            {
+                "message": (
+                    "Forecast date range must be within "
+                    "2026-10-13 to 2026-10-28"
+                )
+            },
+            status_code=400,
+        ),
+    )
+
+    with pytest.raises(
+        MarineWeatherError,
+        match=(
+            "Marine forecasts are currently available from "
+            "2026-10-13 through 2026-10-28"
+        ),
+    ):
+        MarineWeatherService("secret-key").get_hourly_forecast(
+            33.65, -117.99, date(2026, 10, 12), 17
+        )
+
+
+def test_hourly_forecast_rejects_all_empty_marine_values(monkeypatch):
+    requested_date = date(2026, 10, 13)
+    monkeypatch.setattr(
+        "services.marine_weather_service.requests.get",
+        lambda *args, **kwargs: FakeResponse(
+            {
+                "location": {"city": "Calgary"},
+                "forecast": {
+                    requested_date.isoformat(): {
+                        "hourly": [{"timestamp": "2026-10-13T10:00"}]
+                    }
+                },
+            }
+        ),
+    )
+
+    with pytest.raises(MarineWeatherError, match="select a surf spot"):
+        MarineWeatherService("secret-key").get_hourly_forecast_by_location(
+            "The Wedge, CA", requested_date, 10
+        )

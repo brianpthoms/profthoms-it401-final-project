@@ -11,6 +11,9 @@
     const forecastFields = document.querySelector(".forecast-form");
     const surfBreakInput = document.getElementById("surf-break-name");
     const selectedCityInput = document.getElementById("selected-city");
+    const surfSpotIdInput = document.getElementById("surf-spot-id");
+    const surfSpotSuggestions = document.getElementById("surf-spot-suggestions");
+    const spotSearchStatus = document.getElementById("spot-search-status");
     const useCurrentLocationButton = document.getElementById("use-forecast-location");
     let map = null;
     let currentLocationMarker = null;
@@ -21,6 +24,8 @@
     let resolvedSpotType = "surf break";
     let currentLocationLabel = "";
     let currentSpotDistance = null;
+    let catalogRequest = null;
+    let catalogTimer = null;
 
     if (!mapElement || !latitudeInput || !longitudeInput || !useCurrentLocationButton) {
         return;
@@ -47,12 +52,103 @@
             selectedCityInput.value = "";
             locationInput.focus();
         } else if (map) {
+            surfSpotIdInput.value = "";
             window.setTimeout(() => map.invalidateSize(), 0);
         }
     }
 
     lookupInputs.forEach((input) => {
         input.addEventListener("change", () => setLookupMode(input.value));
+    });
+
+    function closeCatalogSuggestions() {
+        surfSpotSuggestions.hidden = true;
+        surfSpotSuggestions.replaceChildren();
+        locationInput.setAttribute("aria-expanded", "false");
+    }
+
+    function chooseCatalogSpot(spot) {
+        surfSpotIdInput.value = spot.id;
+        locationInput.value = spot.name;
+        spotSearchStatus.textContent = `Selected ${spot.name} · ${spot.location}`;
+        closeCatalogSuggestions();
+    }
+
+    function renderCatalogSuggestions(spots) {
+        surfSpotSuggestions.replaceChildren();
+        if (!spots.length) {
+            closeCatalogSuggestions();
+            spotSearchStatus.textContent = "No catalog match. Enter a full coastal city and region instead.";
+            return;
+        }
+        spots.forEach((spot) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.className = "spot-suggestion";
+            option.setAttribute("role", "option");
+            const name = document.createElement("strong");
+            name.textContent = spot.name;
+            const location = document.createElement("small");
+            location.textContent = spot.location;
+            option.append(name, location);
+            option.addEventListener("click", () => chooseCatalogSpot(spot));
+            surfSpotSuggestions.append(option);
+        });
+        surfSpotSuggestions.hidden = false;
+        locationInput.setAttribute("aria-expanded", "true");
+        spotSearchStatus.textContent = `${spots.length} known surf spot${spots.length === 1 ? "" : "s"} found.`;
+    }
+
+    async function searchCatalog(query) {
+        if (catalogRequest) {
+            catalogRequest.abort();
+        }
+        const controller = new AbortController();
+        catalogRequest = controller;
+        try {
+            const response = await fetch(`/api/surf-spots?q=${encodeURIComponent(query)}`, {
+                signal: controller.signal,
+                headers: { Accept: "application/json" },
+            });
+            if (!response.ok) {
+                throw new Error("Catalog search failed");
+            }
+            const payload = await response.json();
+            renderCatalogSuggestions(payload.spots ?? []);
+        } catch (error) {
+            if (error.name !== "AbortError") {
+                closeCatalogSuggestions();
+                spotSearchStatus.textContent = "Spot suggestions are temporarily unavailable; city search still works.";
+            }
+        } finally {
+            if (catalogRequest === controller) {
+                catalogRequest = null;
+            }
+        }
+    }
+
+    locationInput.addEventListener("input", () => {
+        surfSpotIdInput.value = "";
+        window.clearTimeout(catalogTimer);
+        const query = locationInput.value.trim();
+        if (query.length < 2) {
+            closeCatalogSuggestions();
+            spotSearchStatus.textContent = "Type at least two characters to search known spots.";
+            return;
+        }
+        catalogTimer = window.setTimeout(() => searchCatalog(query), 180);
+    });
+
+    locationInput.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeCatalogSuggestions();
+        }
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!event.target.closest(".spot-search")) {
+            closeCatalogSuggestions();
+        }
     });
 
     if (typeof L === "undefined") {

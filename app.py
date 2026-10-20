@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import click
 from flask import Flask
@@ -8,6 +9,7 @@ from config import config
 from models import db
 from routes.auth import register_auth_routes
 from routes.main import register_routes
+from services.surf_spot_repository import seed_surf_spots
 
 
 def upgrade_database_schema():
@@ -94,6 +96,21 @@ def create_app(config_name=None, test_config=None):
         db.create_all()
         upgrade_database_schema()
         click.echo("Upgraded the Breakline database schema.")
+
+    @app.cli.command("seed-surf-spots")
+    def seed_surf_spots_command():
+        """Load or refresh the reviewed demo surf-spot catalog."""
+        if not app.config["DATABASE_ENABLED"]:
+            raise click.UsageError(
+                "Database credentials are not configured. Add DB_NAME, "
+                "DB_USERNAME, and DB_PASSWORD to .env first."
+            )
+        seed_path = Path(app.config["DATA_DIR"]) / "surf_spots_demo.json"
+        created, updated = seed_surf_spots(seed_path)
+        click.echo(
+            f"Seeded the Breakline surf-spot catalog: "
+            f"{created} created, {updated} updated."
+        )
 
     return app
 
