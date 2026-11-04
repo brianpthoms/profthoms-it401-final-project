@@ -26,6 +26,7 @@
     let currentSpotDistance = null;
     let catalogRequest = null;
     let catalogTimer = null;
+    let locationSelectionVersion = 0;
 
     if (!mapElement || !latitudeInput || !longitudeInput || !useCurrentLocationButton) {
         return;
@@ -180,6 +181,25 @@
         longitudeInput.value = longitude.toFixed(5);
     }
 
+    function startLocationSelection() {
+        locationSelectionVersion += 1;
+        if (cityRequest) {
+            cityRequest.abort();
+        }
+        if (surfBreakRequest) {
+            surfBreakRequest.abort();
+        }
+        // Labels from the previous point must never be submitted with new
+        // coordinates while the new reverse lookups are still pending.
+        resolvedCity = "";
+        resolvedSurfBreak = "";
+        resolvedSpotType = "surf break";
+        currentSpotDistance = null;
+        selectedCityInput.value = "";
+        surfBreakInput.value = "";
+        return locationSelectionVersion;
+    }
+
     function renderLocationStatus(message = "") {
         if (message) {
             coordinateStatus.textContent = message;
@@ -201,7 +221,12 @@
         }
     }
 
-    async function reverseGeocode(latitude, longitude, useAsCurrentLocation = false) {
+    async function reverseGeocode(
+        latitude,
+        longitude,
+        useAsCurrentLocation = false,
+        selectionVersion = locationSelectionVersion,
+    ) {
         if (cityRequest) {
             cityRequest.abort();
         }
@@ -232,6 +257,9 @@
             }
 
             const payload = await response.json();
+            if (selectionVersion !== locationSelectionVersion) {
+                return "";
+            }
             const address = payload.address ?? {};
             const city = address.city
                 ?? address.town
@@ -254,7 +282,10 @@
             renderLocationStatus();
             return label;
         } catch (error) {
-            if (error.name !== "AbortError") {
+            if (
+                selectionVersion === locationSelectionVersion
+                && error.name !== "AbortError"
+            ) {
                 if (!useAsCurrentLocation) {
                     resolvedCity = "";
                     selectedCityInput.value = "";
@@ -317,7 +348,12 @@
         }
     }
 
-    async function findNearbySurfBreak(latitude, longitude, fromCurrentLocation = false) {
+    async function findNearbySurfBreak(
+        latitude,
+        longitude,
+        fromCurrentLocation = false,
+        selectionVersion = locationSelectionVersion,
+    ) {
         if (surfBreakRequest) {
             surfBreakRequest.abort();
         }
@@ -358,6 +394,9 @@
             if (!payload) {
                 throw new Error("OpenStreetMap lookup failed");
             }
+            if (selectionVersion !== locationSelectionVersion) {
+                return;
+            }
             const breaks = payload.elements
                 .filter((element) => {
                     const tags = element.tags ?? {};
@@ -387,11 +426,14 @@
 
             if (breaks.length === 0) {
                 if (!fromCurrentLocation) {
-                    await reverseGeocode(latitude, longitude);
+                    await reverseGeocode(latitude, longitude, false, selectionVersion);
                 }
                 return;
             }
 
+            if (selectionVersion !== locationSelectionVersion) {
+                return;
+            }
             const nearestBreak = breaks[0];
             surfBreakInput.value = nearestBreak.name;
             resolvedSurfBreak = nearestBreak.name;
@@ -415,12 +457,20 @@
                 renderLocationStatus();
             } else {
                 map.panTo([nearestBreak.latitude, nearestBreak.longitude]);
-                await reverseGeocode(nearestBreak.latitude, nearestBreak.longitude);
+                await reverseGeocode(
+                    nearestBreak.latitude,
+                    nearestBreak.longitude,
+                    false,
+                    selectionVersion,
+                );
             }
         } catch (error) {
-            if (error.name !== "AbortError" || surfBreakRequest === controller) {
+            if (
+                selectionVersion === locationSelectionVersion
+                && (error.name !== "AbortError" || surfBreakRequest === controller)
+            ) {
                 if (!fromCurrentLocation) {
-                    await reverseGeocode(latitude, longitude);
+                    await reverseGeocode(latitude, longitude, false, selectionVersion);
                 } else {
                     renderLocationStatus();
                 }
@@ -447,10 +497,15 @@
         useCurrentLocationButton.title = "Location services are not available in this browser.";
     } else {
         useCurrentLocationButton.addEventListener("click", () => {
+            const selectionVersion = startLocationSelection();
             useCurrentLocationButton.disabled = true;
             renderLocationStatus("Finding your current location…");
             navigator.geolocation.getCurrentPosition(
                 async ({ coords }) => {
+                    if (selectionVersion !== locationSelectionVersion) {
+                        useCurrentLocationButton.disabled = false;
+                        return;
+                    }
                     const latitude = coords.latitude;
                     const longitude = coords.longitude;
                     clearCurrentLocation();
@@ -468,12 +523,34 @@
                     ).addTo(map).bindTooltip("Your current location");
                     selectLocation(latitude, longitude);
                     map.setView([latitude, longitude], 11);
-                    await reverseGeocode(latitude, longitude, true);
-                    await findNearbySurfBreak(latitude, longitude, true);
+                    await reverseGeocode(
+                        latitude,
+                        longitude,
+                        true,
+                        selectionVersion,
+                    );
+                    if (selectionVersion !== locationSelectionVersion) {
+                        useCurrentLocationButton.disabled = false;
+                        return;
+                    }
+                    await findNearbySurfBreak(
+                        latitude,
+                        longitude,
+                        true,
+                        selectionVersion,
+                    );
+                    if (selectionVersion !== locationSelectionVersion) {
+                        useCurrentLocationButton.disabled = false;
+                        return;
+                    }
                     useCurrentLocationButton.textContent = "Update my current location";
                     useCurrentLocationButton.disabled = false;
                 },
                 (error) => {
+                    if (selectionVersion !== locationSelectionVersion) {
+                        useCurrentLocationButton.disabled = false;
+                        return;
+                    }
                     const messages = {
                         1: "Location permission was denied. Allow access and try again.",
                         2: "Your current location could not be determined.",
@@ -491,25 +568,36 @@
     }
 
     map.on("click", (event) => {
+        const selectionVersion = startLocationSelection();
         clearCurrentLocation();
+        useCurrentLocationButton.disabled = false;
         selectLocation(event.latlng.lat, event.latlng.lng);
-        findNearbySurfBreak(event.latlng.lat, event.latlng.lng);
+        findNearbySurfBreak(
+            event.latlng.lat,
+            event.latlng.lng,
+            false,
+            selectionVersion,
+        );
     });
 
     marker.on("dragend", () => {
+        const selectionVersion = startLocationSelection();
         clearCurrentLocation();
+        useCurrentLocationButton.disabled = false;
         const position = marker.getLatLng();
         selectLocation(position.lat, position.lng);
-        findNearbySurfBreak(position.lat, position.lng);
+        findNearbySurfBreak(position.lat, position.lng, false, selectionVersion);
     });
 
     function syncMarkerFromInputs() {
+        const selectionVersion = startLocationSelection();
         clearCurrentLocation();
+        useCurrentLocationButton.disabled = false;
         const latitude = Number.parseFloat(latitudeInput.value);
         const longitude = Number.parseFloat(longitudeInput.value);
         if (validCoordinates(latitude, longitude)) {
             selectLocation(latitude, longitude, true);
-            findNearbySurfBreak(latitude, longitude);
+            findNearbySurfBreak(latitude, longitude, false, selectionVersion);
         }
     }
 

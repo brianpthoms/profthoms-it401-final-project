@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from models import db
 from models.forecast_request import ForecastRequest
 from models.forecast_feedback import ForecastFeedback
+from models.surf_session import SurfSession
 from models.user import User, utc_now
 from services.request_history_repository import (
     TIME_PERIODS,
@@ -24,6 +25,11 @@ from services.search_analytics_repository import (
     history_search_matches,
     record_history_interaction,
     record_history_search,
+)
+from services.surf_session_repository import (
+    get_owned_session,
+    get_session_counts,
+    get_user_sessions,
 )
 from services.wikipedia_repository import get_wikipedia_info
 from services.intelligence_prompts import PROMPT_VERSION
@@ -64,6 +70,17 @@ def _positive_integer(value):
         return parsed if parsed > 0 else None
     except (TypeError, ValueError):
         return None
+
+
+def _parse_session_schedule(date_value, time_value):
+    try:
+        planned_date = date.fromisoformat(date_value)
+        planned_time = time.fromisoformat(time_value).replace(second=0, microsecond=0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Choose a valid session date and time.") from exc
+    if planned_time.tzinfo is not None:
+        raise ValueError("Choose a local session time without a time zone offset.")
+    return planned_date, planned_time
 
 
 def register_auth_routes(app):
@@ -144,6 +161,19 @@ def register_auth_routes(app):
     @login_required
     def profile():
         history_total_count = count_forecast_requests(current_user.id)
+        try:
+            surf_sessions = get_user_sessions(current_user.id)
+            session_counts = get_session_counts(current_user.id)
+        except SQLAlchemyError:
+            db.session.rollback()
+            surf_sessions = []
+            session_counts = {
+                "planned": 0,
+                "completed": 0,
+                "cancelled": 0,
+                "total": 0,
+            }
+            app.logger.warning("Surf sessions could not be read.", exc_info=True)
         filter_names = (
             "spot",
             "date_from",
@@ -372,7 +402,109 @@ def register_auth_routes(app):
             search_submitted=search_submitted,
             history_total_count=history_total_count,
             search_recall_percent=search_recall_percent,
+            surf_sessions=surf_sessions,
+            session_counts=session_counts,
         )
+
+    @app.post("/sessions")
+    @login_required
+    def plan_surf_session():
+        request_id = _positive_integer(request.form.get("forecast_request_id"))
+        history_item = db.session.scalar(
+            select(ForecastRequest).where(
+                ForecastRequest.id == request_id,
+                ForecastRequest.user_id == current_user.id,
+            )
+        )
+        if history_item is None or history_item.forecast is None:
+            abort(404)
+
+        destination = _safe_local_path(request.form.get("next")) or url_for("profile")
+        try:
+            planned_date, planned_time = _parse_session_schedule(
+                request.form.get("planned_date", ""),
+                request.form.get("planned_time", ""),
+            )
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(destination + "#plan-session")
+
+        session_record = history_item.surf_session
+        if session_record is None:
+            beach = history_item.beach or history_item.forecast.beach
+            session_record = SurfSession(
+                user_id=current_user.id,
+                beach_id=beach.id if beach else None,
+                source_forecast_request_id=history_item.id,
+                source_forecast_id=history_item.forecast.id,
+                spot_name=(
+                    history_item.surf_break_name
+                    or (beach.name if beach else None)
+                    or history_item.requested_location
+                    or "Unknown surf spot"
+                ),
+            )
+            db.session.add(session_record)
+        session_record.planned_date = planned_date
+        session_record.planned_time = planned_time
+
+        try:
+            db.session.commit()
+            flash("Your surf session was added to your journal.", "success")
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.warning("Surf session could not be saved.", exc_info=True)
+            flash("Your surf session could not be saved. Please try again.", "error")
+        return redirect(destination + "#plan-session")
+
+    @app.post("/profile/sessions/<int:session_id>")
+    @login_required
+    def update_surf_session(session_id):
+        session_record = get_owned_session(session_id, current_user.id)
+        if session_record is None:
+            abort(404)
+
+        status = request.form.get("status", "").strip().lower()
+        notes = request.form.get("journal_notes", "").strip()
+        raw_rating = request.form.get("rating", "").strip()
+        errors = []
+        try:
+            planned_date, planned_time = _parse_session_schedule(
+                request.form.get("planned_date", ""),
+                request.form.get("planned_time", ""),
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            planned_date = session_record.planned_date
+            planned_time = session_record.planned_time
+        if status not in ("planned", "completed", "cancelled"):
+            errors.append("Choose a valid session status.")
+        if len(notes) > 2000:
+            errors.append("Journal notes must be 2,000 characters or fewer.")
+        try:
+            rating = int(raw_rating) if raw_rating else None
+        except ValueError:
+            rating = 0
+        if rating is not None and rating not in range(1, 6):
+            errors.append("Choose a session rating from 1 to 5.")
+
+        if errors:
+            for message in errors:
+                flash(message, "error")
+        else:
+            session_record.planned_date = planned_date
+            session_record.planned_time = planned_time
+            session_record.status = status
+            session_record.rating = rating
+            session_record.journal_notes = notes or None
+            try:
+                db.session.commit()
+                flash("Your surf journal was updated.", "success")
+            except SQLAlchemyError:
+                db.session.rollback()
+                app.logger.warning("Surf journal could not be updated.", exc_info=True)
+                flash("Your surf journal could not be updated. Please try again.", "error")
+        return redirect(url_for("profile") + "#surf-sessions")
 
     @app.route("/profile/history/<int:request_id>")
     @login_required

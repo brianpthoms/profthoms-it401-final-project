@@ -55,10 +55,13 @@ class MarineWeatherService:
             .get("hourly", [])
         )
         timestamp_prefix = f"{forecast_date.isoformat()}T{forecast_hour:02d}:"
+        normalized_hourly = [
+            self._normalize_hourly_conditions(conditions) for conditions in hourly
+        ]
         selected = next(
             (
                 conditions
-                for conditions in hourly
+                for conditions in normalized_hourly
                 if str(conditions.get("timestamp", "")).startswith(timestamp_prefix)
             ),
             None,
@@ -68,14 +71,8 @@ class MarineWeatherService:
                 "No wave conditions were returned for that location and hour."
             )
 
-        marine_fields = (
-            "wave_height",
-            "wave_direction",
-            "wave_period",
-            "swell_wave_height",
-            "swell_wave_direction",
-            "swell_wave_period",
-            "wind_wave_height",
+        marine_fields = tuple(
+            field for field in selected if field != "timestamp"
         )
         if all(selected.get(field) is None for field in marine_fields):
             raise MarineWeatherError(
@@ -85,18 +82,25 @@ class MarineWeatherService:
 
         return {
             "location": payload.get("location", {}),
-            "conditions": {
-                "timestamp": selected.get("timestamp"),
-                "wave_height_max": selected.get("wave_height"),
-                "wave_direction_dominant": selected.get("wave_direction"),
-                "wave_period_max": selected.get("wave_period"),
-                "swell_wave_height_max": selected.get("swell_wave_height"),
-                "swell_wave_direction_dominant": selected.get(
-                    "swell_wave_direction"
-                ),
-                "swell_wave_period_max": selected.get("swell_wave_period"),
-                "wind_wave_height_max": selected.get("wind_wave_height"),
-            },
+            "conditions": selected,
+            # APIFreaks already returned the whole day. Keep it so callers can
+            # compare real hourly windows without another provider request.
+            "hourly_conditions": normalized_hourly,
+        }
+
+    @staticmethod
+    def _normalize_hourly_conditions(conditions):
+        return {
+            "timestamp": conditions.get("timestamp"),
+            "wave_height_max": conditions.get("wave_height"),
+            "wave_direction_dominant": conditions.get("wave_direction"),
+            "wave_period_max": conditions.get("wave_period"),
+            "swell_wave_height_max": conditions.get("swell_wave_height"),
+            "swell_wave_direction_dominant": conditions.get(
+                "swell_wave_direction"
+            ),
+            "swell_wave_period_max": conditions.get("swell_wave_period"),
+            "wind_wave_height_max": conditions.get("wind_wave_height"),
         }
 
     def _request_forecast(self, location_params, forecast_date, precision):

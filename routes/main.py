@@ -5,8 +5,9 @@ from flask_login import current_user
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import db
-from services.forecast_repository import save_forecast
 from services.ai_service import AiService, AiServiceError
+from services.forecast_repository import save_forecast
+from services.hourly_scoring import compare_hourly_windows
 from services.intelligence_prompts import PROMPT_VERSION, USER_REQUEST
 from services.intelligence_repository import (
     get_cached_intelligence,
@@ -174,6 +175,7 @@ def register_routes(app):
         wikipedia_info = None
         forecast_intelligence = None
         intelligence_error = None
+        hourly_comparison = None
 
         try:
             forecast_date = datetime.strptime(requested_date, "%Y-%m-%d").date()
@@ -261,7 +263,24 @@ def register_routes(app):
                         latitude, longitude, forecast_date, forecast_time.hour
                     )
 
+                location_data = raw_forecast.get("location", {})
+                comparison_latitude = location_data.get("latitude")
+                comparison_longitude = location_data.get("longitude")
+                if selected_surf_spot is not None:
+                    comparison_latitude = selected_surf_spot.latitude
+                    comparison_longitude = selected_surf_spot.longitude
+                elif lookup_mode == "coordinates":
+                    comparison_latitude = latitude
+                    comparison_longitude = longitude
+
                 forecast = present_forecast(raw_forecast)
+                hourly_comparison = compare_hourly_windows(
+                    raw_forecast.get("hourly_conditions"),
+                    forecast_time.hour,
+                    forecast_date=forecast_date,
+                    latitude=comparison_latitude,
+                    longitude=comparison_longitude,
+                )
                 if selected_surf_spot is not None:
                     forecast["area_name"] = forecast["place_name"]
                     forecast["place_name"] = selected_surf_spot.canonical_name
@@ -275,7 +294,6 @@ def register_routes(app):
                     forecast["place_name"] = surf_break_name
                     forecast["surf_break"] = True
 
-                location_data = raw_forecast.get("location", {})
                 beach_name = (
                     surf_break_name
                     or selected_city
@@ -405,6 +423,7 @@ def register_routes(app):
             wikipedia_info=wikipedia_info,
             forecast_intelligence=forecast_intelligence,
             intelligence_error=intelligence_error,
+            hourly_comparison=hourly_comparison,
             error=error,
             forecast_date=forecast_date,
             forecast_time=forecast_time,

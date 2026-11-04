@@ -15,6 +15,8 @@ Authenticated users receive a private forecast history. A4 search improves the o
 
 A5 adds a retrieval-augmented classification and summarization feature. After a successful lookup, Breakline uses the saved `SurfForecast` row and that beach's cached Wikipedia summary to produce a validated JSON outlook: a fixed `Flat`, `Poor`, `Fair`, `Good`, or `Epic` rating; a 2–3 sentence summary; numeric confidence; and a list of missing information. The rating fills the forecast card's former “Hourly marine outlook” placeholder, while the explanation and provenance appear directly below it.
 
+The hourly response is also retained for the current request instead of discarding every unselected hour. Breakline compares those already-retrieved hours locally—without another APIFreaks call—using a transparent 0–100 rule score for swell size, swell period, wind-wave chop relative to swell, and data completeness. It recommends up to three alternatives within the location's approximate civil-twilight window and gives a plain-language reason for every factor while keeping A5's AI rating as the primary outlook.
+
 ## A5 Deliverable Map
 
 | Assignment requirement | Project evidence |
@@ -29,7 +31,7 @@ A5 adds a retrieval-augmented classification and summarization feature. After a 
 | Generated-intelligence storage | `ForecastIntelligence` stores output, model, prompt version, generation time, source-record IDs, user request, and a context hash. |
 | Reliability | Safe handling for missing key/context, rate limits, timeouts, provider/JSON failures, invalid output, and database errors. |
 | Application organization | Models, prompts, validation, HTTP provider client, orchestration, and persistence are separated by responsibility. |
-| Automated evaluation | Intelligence, catalog, forecast, authentication, and retrieval coverage; complete suite: 47 passing tests. |
+| Automated evaluation | Intelligence, catalog, forecast, authentication, retrieval, hourly comparison, and surf-journal coverage; complete suite: 59 passing tests. |
 | README and PDF evidence | This README contains every required A5 discussion. The screenshot/PDF capture checklist below identifies the live evidence still to capture after configuring the real services. |
 
 ## Intelligence Generation
@@ -228,11 +230,12 @@ These records can reveal common query vocabulary, filters that produce zero resu
 
 | Table | Purpose | Primary key | Important attributes | Relationships |
 |---|---|---|---|---|
-| `users` | Local profile for Google-authenticated users | `id` | `google_sub`, email, display name, avatar, timestamps | One-to-many forecast requests, history searches, and interactions |
+| `users` | Local profile for Google-authenticated users | `id` | `google_sub`, email, display name, avatar, timestamps | One-to-many forecast requests, surf sessions, history searches, and interactions |
 | `beaches` | Normalized beach/coastal location | `id` | name, city, state/province, country, latitude, longitude | One-to-many forecasts; one-to-one Wikipedia info |
 | `surf_forecasts` | Persisted hourly APIFreaks conditions | `id` | beach, date, hour, wave/swell/wind-wave values, source, retrieval time | Many-to-one beach; referenced by forecast requests |
 | `forecast_requests` | Authenticated user's successful forecast history | `id` | user, beach, forecast, lookup mode, requested location, surf-break name, timestamp | Many-to-one user, beach, and surf forecast |
 | `forecast_feedback` | User rating and optional comments for a saved forecast request | `id` | forecast request, 1–5 rating, comment, created/updated timestamps | One-to-one forecast request |
+| `surf_sessions` | Planned and journaled surfing sessions | `id` | user, spot snapshot, planned local date/time, status, 1–5 session rating, notes, timestamps | Many-to-one user/beach/forecast; optional one-to-one source forecast request |
 | `wikipedia_spot_info` | Cached Wikipedia API overview and provenance | `id` | page/revision IDs, summary, URL, license, timestamps | One-to-one beach |
 | `forecast_intelligence` | Validated generated classification, summary, and provenance | `id` | rating, summary, confidence, missing info, output JSON, model, prompt version, context hash, source records, user request, timestamp | Many-to-one surf forecast; optional Wikipedia source FK |
 | `surf_spots` | Reviewed local surf-break catalog | `id` | canonical name, slug, region, coordinates, source/license, active state | One-to-many aliases |
@@ -243,6 +246,7 @@ These records can reveal common query vocabulary, filters that produce zero resu
 ```mermaid
 erDiagram
     USERS ||--o{ FORECAST_REQUESTS : makes
+    USERS ||--o{ SURF_SESSIONS : journals
     USERS ||--o{ HISTORY_SEARCHES : submits
     USERS ||--o{ HISTORY_SEARCH_INTERACTIONS : generates
     BEACHES ||--o{ SURF_FORECASTS : has
@@ -252,6 +256,8 @@ erDiagram
     BEACHES ||--o{ FORECAST_REQUESTS : referenced_by
     SURF_FORECASTS ||--o{ FORECAST_REQUESTS : referenced_by
     FORECAST_REQUESTS ||--o| FORECAST_FEEDBACK : receives
+    FORECAST_REQUESTS ||--o| SURF_SESSIONS : inspires
+    BEACHES ||--o{ SURF_SESSIONS : hosts
     HISTORY_SEARCHES ||--o{ HISTORY_SEARCH_INTERACTIONS : produces
     FORECAST_REQUESTS o|--o{ HISTORY_SEARCH_INTERACTIONS : opened_by
 ```
@@ -263,8 +269,8 @@ erDiagram
 - **Homepage:** Responsive Breakline landing page, session planner, map/city lookup switch, and forecast report.
 - **API integration:** Hourly APIFreaks forecasts, OpenStreetMap tiles/Overpass/Nominatim data, and Wikipedia MediaWiki Action API extracts.
 - **Web scraping:** No HTML scraping is used in the current implementation. Wikipedia scraping was replaced with the supported API; `wikipedia_scraper.py` remains only as a backward-compatible import wrapper.
-- **MySQL persistence:** Flask-SQLAlchemy models store users, beaches, hourly forecasts, Wikipedia information, request history, searches, and interactions.
-- **CRUD operations:** The application creates user/search/request records, reads stored forecasts and profiles, and updates existing beach/forecast/cache records. Database relationships support cascading cleanup, but there is not yet a user-facing delete or account-edit interface.
+- **MySQL persistence:** Flask-SQLAlchemy models store users, beaches, hourly forecasts, Wikipedia information, request history, surf sessions, searches, and interactions.
+- **CRUD operations:** The application creates user/search/request/session records, reads stored forecasts and profiles, and updates beach/forecast/cache records plus session schedules and journal entries. Database relationships support cascading cleanup, but there is not yet a user-facing delete or account-edit interface.
 - **Keyword search:** Searches surf-spot, requested-location, beach-name, and city fields.
 - **Filtering:** Inclusive date range, time of day, current-location radius, and mandatory user ownership.
 - **Sorting:** Newest first and surf spot A–Z.
@@ -272,6 +278,7 @@ erDiagram
 - **Pagination:** 10 results per page with counts, numbered pages, previous/next links, and automatic return to the results table.
 - **Search telemetry:** Search criteria, result counts, pagination activity, and result views.
 - **Forecast feedback:** Signed-in users can submit or update a 1–5 usefulness rating and optional comments for each saved forecast request; ratings are visible in forecast history.
+- **Surf-session portfolio:** Signed-in users can turn a forecast into a planned session, choose a local paddle-out date/time, and maintain status, a 1–5 session rating, and journal notes from their profile.
 - **Google sign-in:** OpenID Connect authorization-code flow with verified email and no stored Google access/refresh tokens.
 - **Location features:** Interactive map, browser geolocation, separate current/forecast markers, nearest named beach or surf break, readable city/state/country, and distance display.
 - **Wikipedia information:** Cached, attributed, plain-text API summaries with revision and license provenance.
@@ -298,6 +305,7 @@ erDiagram
 │   ├── forecast_request.py        # Authenticated forecast history
 │   ├── history_search.py          # Search and interaction telemetry
 │   ├── surf_forecast.py           # Persisted hourly conditions
+│   ├── surf_session.py            # Planned sessions and journal entries
 │   ├── surf_spot.py               # Curated spots and searchable aliases
 │   ├── user.py                    # Google-authenticated local profile
 │   └── wikipedia_spot_info.py     # Cached Wikipedia API content
@@ -311,6 +319,7 @@ erDiagram
 │   ├── intelligence_repository.py # Generated-output persistence and reuse
 │   ├── intelligence_service.py    # Retrieved-context construction/orchestration
 │   ├── intelligence_validator.py  # Strict structured-output validation
+│   ├── surf_session_repository.py # Owned session portfolio queries
 │   ├── marine_weather_service.py  # APIFreaks client and normalization
 │   ├── request_history_repository.py # Search SQL, distance, pagination
 │   ├── search_analytics_repository.py # Telemetry persistence
@@ -588,7 +597,7 @@ The automated A4 evaluation uses a controlled authenticated history containing T
 
 ### Evaluation summary
 
-- **Expected versus actual:** All five controlled queries match their expected sets; the complete A5 suite currently reports 47 passing tests.
+- **Expected versus actual:** All five controlled queries match their expected sets; the complete suite currently reports 59 passing tests.
 - **Precision:** Strong for exact substrings and structured filters because each condition maps directly to stored fields.
 - **Recall:** Strong within the controlled data, but production recall will fall for synonyms, misspellings, abbreviations, and unmapped aliases.
 - **Ranking quality:** Stable and understandable, but not relevance-aware. Recency and A–Z are useful presentation orders rather than learned relevance.
@@ -676,6 +685,7 @@ The final PDF should pair those screenshots with short captions and include: the
 - There is no user-facing favorite, delete, profile-edit, or account-deletion interface.
 - The project uses idempotent schema commands rather than a versioned migration framework.
 - The rating is based on general retrieved marine measurements; it does not yet learn spot-specific ideal direction, period, tide, or skill-level preferences.
+- Hourly alternatives use general thresholds, not spot-specific swell exposure, tide, wind direction, hazards, or surfer ability; their score is a relative planning aid rather than a safety rating.
 - APIFreaks does not currently provide every input surfers may expect in this workflow, especially wind speed/direction, tide, water quality, crowds, and live hazards. The model must report important omissions rather than invent them.
 - Confidence is model-reported and schema-validated, not statistically calibrated against observed surf conditions.
 - JSON response mode improves formatting but does not prove factual correctness; grounding rules and visible source measurements remain necessary.

@@ -53,6 +53,71 @@
 {% if intelligence_error %}
 <p class="intelligence-status" role="status"><strong>AI outlook unavailable.</strong> {{ intelligence_error }}</p>
 {% endif %}
+{% if hourly_comparison and hourly_comparison.requested and hourly_comparison.alternatives %}
+<article class="window-comparison" aria-labelledby="window-heading">
+    <header>
+        <div>
+            <p class="eyebrow eyebrow-dark"><span></span> Compare today’s hours</p>
+            <h3 id="window-heading">
+                {% if hourly_comparison.has_better_window %}
+                A better window starts at {{ hourly_comparison.best_time_label }}
+                {% else %}
+                {{ hourly_comparison.requested.time_label }} is a top window
+                {% endif %}
+            </h3>
+        </div>
+        <p>A local 0–100 comparison from the APIFreaks hours already retrieved. Alternatives are limited to civil-twilight hours, approximately {{ hourly_comparison.daylight_start_label }}–{{ hourly_comparison.daylight_end_label }}. The AI rating above remains the main outlook.</p>
+    </header>
+    <div class="window-grid">
+        <section class="window-option requested-window">
+            <p class="window-label">Your time</p>
+            <div class="window-score"><strong>{{ hourly_comparison.requested.time_label }}</strong><span>{{ hourly_comparison.requested.score }}/100</span></div>
+            <ul class="factor-list">
+                {% for factor in hourly_comparison.requested.factors %}
+                <li><strong>{{ factor.name }} · {{ factor.points }}/{{ factor.max_points }}</strong><span>{{ factor.reason }}</span></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% for option in hourly_comparison.alternatives %}
+        <section class="window-option{% if option.is_better %} better-window{% endif %}">
+            <p class="window-label">{% if option.is_better %}Better alternative{% else %}Another window{% endif %}</p>
+            <div class="window-score"><strong>{{ option.time_label }}</strong><span>{{ option.score }}/100</span></div>
+            <details>
+                <summary>Which factors influenced this?</summary>
+                <ul class="factor-list">
+                    {% for factor in option.factors %}
+                    <li><strong>{{ factor.name }} · {{ factor.points }}/{{ factor.max_points }}</strong><span>{{ factor.reason }}</span></li>
+                    {% endfor %}
+                </ul>
+            </details>
+        </section>
+        {% endfor %}
+    </div>
+    <p class="comparison-note">This comparison does not account for tide, wind direction, local bathymetry, hazards, or surfer ability.</p>
+</article>
+{% endif %}
+{% if history_item %}
+<article class="plan-session" id="plan-session" aria-labelledby="plan-session-heading">
+    <div>
+        <p class="eyebrow eyebrow-dark"><span></span> Surf journal</p>
+        <h3 id="plan-session-heading">{% if history_item.surf_session %}Update your planned session{% else %}Plan this session{% endif %}</h3>
+        <p>Save when you intend to paddle out. Afterward, add notes and a rating to build your session portfolio.</p>
+    </div>
+    <form action="{{ url_for('plan_surf_session') }}" method="post">
+        <input type="hidden" name="forecast_request_id" value="{{ history_item.id }}">
+        <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+        <label>
+            <span>Session date</span>
+            <input type="date" name="planned_date" value="{{ history_item.surf_session.planned_date.isoformat() if history_item.surf_session else forecast_date.isoformat() }}" required>
+        </label>
+        <label>
+            <span>Planned paddle-out</span>
+            <input type="time" name="planned_time" value="{{ history_item.surf_session.planned_time.strftime('%H:%M') if history_item.surf_session else forecast_time.strftime('%H:%M') }}" required>
+        </label>
+        <button class="button button-coral" type="submit">{% if history_item.surf_session %}Update plan{% else %}Add to journal{% endif %} <span aria-hidden="true">→</span></button>
+    </form>
+</article>
+{% endif %}
 <p class="demo-note">Marine forecast data provided by APIFreaks. Wave heights are converted to feet.</p>
 {% if history_item %}
 <details class="forecast-feedback" id="forecast-feedback" {% if request.args.get('feedback') == 'open' %}open{% endif %}>

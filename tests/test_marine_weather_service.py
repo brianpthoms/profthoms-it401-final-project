@@ -136,6 +136,9 @@ def test_hourly_forecast_selects_requested_hour(monkeypatch):
         "swell_wave_period_max": 13,
         "wind_wave_height_max": 0.2,
     }
+    assert len(result["hourly_conditions"]) == 2
+    assert result["hourly_conditions"][1]["timestamp"] == "2026-08-13T07:00"
+    assert result["hourly_conditions"][1]["wave_height_max"] == 1.6
 
 
 def test_hourly_forecast_reports_missing_hour(monkeypatch):

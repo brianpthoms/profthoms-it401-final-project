@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,7 @@ from app import create_app
 from models import db
 from models.beach import Beach
 from models.surf_forecast import SurfForecast
+from models.surf_session import SurfSession
 from models.forecast_request import ForecastRequest
 from models.forecast_feedback import ForecastFeedback
 from models.history_search import HistorySearch, HistorySearchInteraction
@@ -91,6 +92,9 @@ def test_forecast_form(client):
     assert b"Your location:" in map_script.data
     assert b"Approximately" in map_script.data
     assert b"/api/surf-spots?q=" in map_script.data
+    assert b"locationSelectionVersion" in map_script.data
+    assert b"selectionVersion !== locationSelectionVersion" in map_script.data
+    assert b"selectedCityInput.value = \"\"" in map_script.data
 
 
 def test_demo_surf_spot_catalog_searches_aliases(client):
@@ -204,6 +208,46 @@ def test_forecast_results(client, monkeypatch):
         assert saved.forecast_date == date.today()
         assert saved.forecast_hour == 6
         assert float(saved.wave_height_max) == 1.5
+
+
+def test_forecast_shows_explainable_hourly_alternative(client, monkeypatch):
+    def fake_forecast(self, latitude, longitude, forecast_date, forecast_hour):
+        def hour(timestamp, swell, period, wind_wave):
+            return {
+                "timestamp": timestamp,
+                "wave_height_max": swell + wind_wave,
+                "swell_wave_height_max": swell,
+                "swell_wave_period_max": period,
+                "wind_wave_height_max": wind_wave,
+            }
+
+        requested = hour(f"{forecast_date.isoformat()}T06:00", 0.4, 7, 0.3)
+        better = hour(f"{forecast_date.isoformat()}T07:00", 1.2, 13, 0.1)
+        return {
+            "location": {
+                "city": "Huntington Beach",
+                "latitude": str(latitude),
+                "longitude": str(longitude),
+            },
+            "conditions": requested,
+            "hourly_conditions": [requested, better],
+        }
+
+    monkeypatch.setattr(MarineWeatherService, "get_hourly_forecast", fake_forecast)
+    response = client.get(
+        f"/?latitude=33.6595&longitude=-117.9988"
+        f"&date={date.today().isoformat()}&time=06:00"
+    )
+
+    assert response.status_code == 200
+    assert b"A better window starts at 7 AM" in response.data
+    assert b"Alternatives are limited to civil-twilight hours" in response.data
+    assert b"The AI rating above remains the main outlook" in response.data
+    assert b"Which factors influenced this?" in response.data
+    assert b"Swell size" in response.data
+    assert b"Swell period" in response.data
+    assert b"Wave cleanliness" in response.data
+    assert b"Data completeness" in response.data
 
 
 def test_repeated_forecast_updates_existing_beach_date(client, monkeypatch):
@@ -392,6 +436,135 @@ def test_signed_in_forecast_is_added_to_profile_history(client, monkeypatch):
             ).status_code
             == 404
         )
+
+
+def test_user_can_plan_and_journal_a_surf_session(client, monkeypatch):
+    def fake_forecast(self, latitude, longitude, forecast_date, forecast_hour):
+        return {
+            "location": {
+                "city": "Newport Beach",
+                "latitude": str(latitude),
+                "longitude": str(longitude),
+            },
+            "conditions": {"wave_height_max": 1.4},
+        }
+
+    monkeypatch.setattr(MarineWeatherService, "get_hourly_forecast", fake_forecast)
+    with client.application.app_context():
+        user = User(
+            google_sub="journal-user",
+            email="journal@example.com",
+            display_name="Journal Surfer",
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    with client.session_transaction() as session:
+        session["_user_id"] = str(user_id)
+        session["_fresh"] = True
+
+    forecast_response = client.get(
+        f"/?lookup=coordinates&latitude=33.5931&longitude=-117.8817"
+        f"&surf_break_name=The+Wedge&date={date.today().isoformat()}&time=06:00"
+    )
+    assert forecast_response.status_code == 200
+    assert b"Plan this session" in forecast_response.data
+    assert b"Add to journal" in forecast_response.data
+
+    with client.application.app_context():
+        history_id = db.session.scalar(db.select(ForecastRequest.id))
+
+    planned = client.post(
+        "/sessions",
+        data={
+            "forecast_request_id": str(history_id),
+            "planned_date": date.today().isoformat(),
+            "planned_time": "06:30",
+            "next": "/profile",
+        },
+        follow_redirects=True,
+    )
+    assert planned.status_code == 200
+    assert b"surf session was added to your journal" in planned.data
+    assert b"Your surf journal" in planned.data
+    assert b"The Wedge" in planned.data
+    assert b"6:30 AM" in planned.data
+
+    with client.application.app_context():
+        surf_session = db.session.execute(db.select(SurfSession)).scalar_one()
+        assert surf_session.user_id == user_id
+        assert surf_session.source_forecast_request_id == history_id
+        assert surf_session.planned_time.strftime("%H:%M") == "06:30"
+        assert surf_session.status == "planned"
+        session_id = surf_session.id
+
+    updated = client.post(
+        f"/profile/sessions/{session_id}",
+        data={
+            "planned_date": date.today().isoformat(),
+            "planned_time": "07:15",
+            "status": "completed",
+            "rating": "5",
+            "journal_notes": "Clean shoulder-high waves and a quiet lineup.",
+        },
+        follow_redirects=True,
+    )
+    assert updated.status_code == 200
+    assert b"surf journal was updated" in updated.data
+    assert b"Clean shoulder-high waves" in updated.data
+    assert b"Completed" in updated.data
+    assert b"5/5" in updated.data
+
+    with client.application.app_context():
+        surf_session = db.session.get(SurfSession, session_id)
+        assert surf_session.status == "completed"
+        assert surf_session.rating == 5
+        assert surf_session.planned_time.strftime("%H:%M") == "07:15"
+        assert surf_session.journal_notes == (
+            "Clean shoulder-high waves and a quiet lineup."
+        )
+
+
+def test_surf_journal_enforces_session_ownership(client):
+    with client.application.app_context():
+        owner = User(
+            google_sub="session-owner",
+            email="owner@example.com",
+            display_name="Session Owner",
+        )
+        other = User(
+            google_sub="session-other",
+            email="other-session@example.com",
+            display_name="Other Surfer",
+        )
+        db.session.add_all((owner, other))
+        db.session.flush()
+        surf_session = SurfSession(
+            user_id=owner.id,
+            spot_name="The Wedge",
+            planned_date=date.today(),
+            planned_time=time(hour=6),
+        )
+        db.session.add(surf_session)
+        db.session.commit()
+        other_id = other.id
+        session_id = surf_session.id
+
+    with client.session_transaction() as session:
+        session["_user_id"] = str(other_id)
+        session["_fresh"] = True
+
+    response = client.post(
+        f"/profile/sessions/{session_id}",
+        data={
+            "planned_date": date.today().isoformat(),
+            "planned_time": "06:00",
+            "status": "completed",
+            "rating": "5",
+            "journal_notes": "Not my session.",
+        },
+    )
+    assert response.status_code == 404
 
 
 def test_profile_history_supports_combined_search_filters(client, monkeypatch):

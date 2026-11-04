@@ -17,6 +17,7 @@ from models.surf_spot import SurfSpot, SurfSpotAlias  # noqa: E402, F401
 from models.user import User  # noqa: E402, F401
 from models.forecast_request import ForecastRequest  # noqa: E402, F401
 from models.forecast_feedback import ForecastFeedback  # noqa: E402, F401
+from models.surf_session import SurfSession  # noqa: E402, F401
 from models.history_search import (  # noqa: E402, F401
     HistorySearch,
     HistorySearchInteraction,

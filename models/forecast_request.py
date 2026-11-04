@@ -36,9 +36,13 @@ class ForecastRequest(db.Model):
         single_parent=True,
         uselist=False,
     )
+    surf_session: Mapped["SurfSession | None"] = relationship(
+        back_populates="source_forecast_request", uselist=False
+    )
 
 
 from models.beach import Beach  # noqa: E402
 from models.surf_forecast import SurfForecast  # noqa: E402
 from models.user import User  # noqa: E402
 from models.forecast_feedback import ForecastFeedback  # noqa: E402
+from models.surf_session import SurfSession  # noqa: E402
