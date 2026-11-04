@@ -77,6 +77,130 @@ flowchart LR
 
 Planning a session is distinct from requesting a forecast. The session snapshots the displayed spot name and planned local date/time, then optionally links back to the source forecast request, forecast row, and normalized beach. Replanning the same forecast request updates its one associated session instead of creating accidental duplicates. Journal reads and writes always include the authenticated user's ID; another user's session returns `404`.
 
+## Decision Support
+
+### Decision problem
+
+The application helps answer two related questions: **Are the selected conditions worth surfing?** and **Is there a better daylight window on the same day?** A single requested hour can look acceptable in isolation even when another hour has a stronger swell period, less wind-wave chop, or more complete data. Breakline therefore combines the A5 AI outlook for the selected hour with an A6 comparison of the complete hourly response already returned by APIFreaks.
+
+This is planning support, not a safety decision. The recommendation does not replace local hazard reports, lifeguard guidance, tide information, water-quality notices, or the surfer's judgment.
+
+### Target user
+
+The target user is a surfer choosing when to paddle out at a selected beach or surf break. The interface assumes the user wants a quick overall outlook, enough evidence to understand it, realistic same-day alternatives, and a way to record the eventual session. It does not currently personalize recommendations by skill level, board, preferred wave size, mobility, or risk tolerance.
+
+### Generated recommendation
+
+The primary recommendation remains A5's generated `Flat`, `Poor`, `Fair`, `Good`, or `Epic` rating for the requested hour. The forecast card displays that classification first. A6 then produces a deterministic 0–100 comparison score for each available hour and identifies the strongest eligible civil-twilight window. If an eligible hour scores better than the requested hour—or the requested hour is outside the daylight window—the interface states that a better window starts at the top-ranked time.
+
+### Explanation
+
+Each compared hour exposes four factors: swell size, swell period, wave cleanliness relative to wind-wave chop, and data completeness. Every factor shows points out of 25 and a plain-language reason based on the displayed provider values. The selected hour shows its explanation immediately; each alternative provides an expandable “Which factors influenced this?” view.
+
+### Alternatives
+
+Up to three alternatives are ranked from the same APIFreaks daily response, so comparison requires no additional weather API call. Alternatives exclude the requested hour and are restricted to approximate civil-twilight hours. Ties are deterministic: the earlier hour is presented first. The user's explicitly requested hour remains visible even when it falls outside the recommendation window.
+
+### Confidence
+
+The AI outlook includes a model-reported confidence value from 0 through 1, displayed as a percentage after strict type and range validation. The rule-based hourly comparison does not pretend to produce a statistical probability. Instead, its data-completeness factor makes missing evidence visible, and the interface labels the score as a local comparison rather than confidence or safety certainty.
+
+## Decision Workflow Diagram
+
+```mermaid
+flowchart TD
+    U[User requests a location, date, and hour]
+    U --> R[Retrieve APIFreaks hourly conditions and cached beach context]
+    R --> G[Generate validated AI outlook for requested hour]
+    R --> S[Score all returned hours with deterministic rules]
+    G --> E[Explain recommendation, confidence, and missing information]
+    S --> E
+    E --> A[Present up to three daylight or twilight alternatives]
+    A --> D[User chooses whether and when to surf]
+    D --> P[Optionally save a planned surf session]
+    P --> F[Record forecast feedback, session outcome, rating, and journal notes]
+```
+
+The generation and hourly-scoring branches use different methods but converge in one decision interface. AI supplies the primary classification and summary; deterministic rules compare hours and expose exactly why one window ranks above another.
+
+## Explainability
+
+### Evidence
+
+The visible evidence comes from the selected and hourly APIFreaks marine records: wave height, wave direction, wave period, swell height, swell direction, swell period, and wind-wave height. A5 also retrieves the saved forecast row and cached Wikipedia summary as bounded model context. The interface reports missing AI inputs and scores hourly data completeness rather than silently filling gaps.
+
+### Reasoning
+
+The AI explanation is constrained to a validated 2–3 sentence summary grounded in retrieved context. Hourly reasoning is fully deterministic: four factors contribute up to 25 points each, their thresholds are defined in `services/hourly_scoring.py`, and their reasons are rendered beside the score. Civil-twilight filtering is applied after scoring so a technically strong overnight hour cannot become a recommendation.
+
+### Recommendation strategy
+
+Breakline uses a layered strategy:
+
+1. Preserve the requested hour and its raw measurements.
+2. Use the AI rating as the main overall signal for that hour.
+3. Score every returned provider hour with the same transparent rules.
+4. Remove non-requested hours outside the estimated civil-twilight window.
+5. Rank eligible alternatives by score and then by earlier time.
+6. Present the selected hour, the best alternative, factor explanations, confidence, and limitations together.
+
+This strategy favors consistency and auditability over opaque optimization. It deliberately avoids claiming that a rule score is a probability of good or safe surf.
+
+## Confidence
+
+### How confidence is determined
+
+AI confidence is generated by the configured language model from the retrieved hourly forecast and cached beach context. The application accepts it only when it is a non-boolean number between `0` and `1`, stores it with the model, prompt version, source IDs, and context hash, and displays the rounded percentage. An identical context/model/prompt combination can reuse the stored validated result.
+
+Hourly comparison confidence is communicated differently. Because the scoring rules are deterministic and not statistically calibrated, Breakline does not attach a confidence percentage to them. Data completeness contributes up to 25 points and explains which measurements are present; incomplete hours therefore rank lower and visibly state what is missing.
+
+### Confidence limitations
+
+- Model-reported confidence is not calibrated against observed surf sessions or expert labels.
+- The AI lacks important inputs such as tide, wind direction and speed, hazards, crowds, water quality, and surfer ability.
+- Complete provider fields can still be inaccurate or too regional for a specific break.
+- The hourly score measures relative rule fit, not likelihood, safety, or forecast accuracy.
+- Civil-twilight boundaries use an approximate timezone offset and may conservatively omit a marginal hour during daylight-saving time.
+
+## User Feedback
+
+### Feedback captured
+
+Authenticated users can submit a 1–5 usefulness rating and optional comment for a saved forecast request. They can also convert a forecast into a planned `SurfSession`, then record planned/completed/cancelled status, a separate 1–5 session rating, and up to 2,000 characters of journal notes. This distinguishes “Was the forecast useful?” from “How was the actual surf session?”
+
+### Stored telemetry
+
+`forecast_feedback` stores the forecast usefulness rating and comment. `surf_sessions` stores the planned local schedule, status, session rating, notes, spot snapshot, optional source links, and timestamps. Existing `history_searches` and `history_search_interactions` store valid search criteria, result counts, pagination views, and opened results. Precise browser-location coordinates are not retained in search telemetry.
+
+Current telemetry does not record which alternative card was clicked, whether the user accepted the top recommendation, result impressions, dwell time, or the actual ocean measurements observed during a session.
+
+### Future feedback improvements
+
+Future releases could record privacy-controlled recommendation acceptance, the chosen alternative rank, cancellation reasons, observed wave size and cleanliness, board/equipment, photos, and whether the recommendation matched reality. Aggregated completed-session outcomes could evaluate rule thresholds, calibrate confidence, personalize preferred conditions, and compare model/prompt versions without treating private journal text as training data by default.
+
+## Evaluation
+
+### Recommendation usefulness
+
+Automated tests verify that a stronger eligible hour can replace a weaker requested hour, midnight is excluded even when it has the highest raw score, a nighttime request remains visible but is not recommended, and Southern California civil-twilight boundaries are applied for a controlled date. Integration coverage verifies the rendered “better window” message and all four explanation factors. These tests establish deterministic correctness, not real-world surf quality.
+
+The recommendation is potentially useful because it compares hours the user would otherwise inspect manually, incurs no additional APIFreaks request, exposes its reasoning, and avoids obviously impractical overnight suggestions. Usefulness has not yet been established through a controlled user study or comparison with observed conditions.
+
+### User interaction
+
+The interface supports a complete interaction path: request a forecast, inspect the AI rating and confidence, compare alternatives, expand factor explanations, choose a planned local session time, and later update the journal. Automated tests verify session creation, profile display, status/rating/note updates, and cross-user access denial. Search interaction telemetry and forecast feedback already provide a foundation for later behavioral evaluation.
+
+### Observed limitations
+
+- The test suite uses controlled provider fixtures rather than live forecast-versus-observation pairs.
+- There is no labeled expert benchmark for the `Flat` through `Epic` classification or hourly thresholds.
+- Forecast usefulness ratings are not yet linked to the particular alternative a user selected.
+- Session notes and ratings are captured, but no analytics currently compare them with recommendation scores.
+- The application has no deployed sample-size, acceptance-rate, completion-rate, or retention evidence yet.
+- Only the requested forecast hour is persisted; non-selected hourly alternatives are currently response-scoped.
+
+The complete automated suite currently contains 59 passing tests. A meaningful post-deployment evaluation should add recommendation impressions, accepted-window events, observed-condition fields, opt-in cohort metrics, and expert-labeled sessions.
+
 ## Intelligence Generation
 
 ### Selected capability and purpose
@@ -709,12 +833,17 @@ Capture these from the configured A6 branch after running `flask --app app upgra
 
 | Required A6 evidence | What the image should prove | Target filename |
 |---|---|---|
-| Hourly alternatives | Requested hour plus daylight-filtered alternatives and scores | `a6-hourly-alternatives.png` |
-| Explainable factors | Swell size, period, cleanliness, and completeness reasons | `a6-scoring-factors.png` |
+| Recommendation interface | Main AI rating, summary, selected-hour evidence, and recommendation hierarchy | `a6-recommendation-interface.png` |
+| Alternatives | Requested hour plus daylight-filtered alternatives and scores | `a6-hourly-alternatives.png` |
+| Confidence | AI confidence percentage, missing-information disclosure, and source/provenance note | `a6-confidence.png` |
+| Comparison view | Side-by-side requested hour and alternatives with swell size, period, cleanliness, and completeness reasons | `a6-comparison-view.png` |
+| Feedback interface | Forecast usefulness rating/comment controls for an authenticated user | `a6-feedback-interface.png` |
 | Session planner | Forecast-linked local date/time controls and journal action | `a6-session-planner.png` |
 | Session portfolio | Planned/completed totals and saved sessions on the profile | `a6-session-portfolio.png` |
 | Journal entry | Completed status, 1–5 session rating, and notes | `a6-journal-entry.png` |
 | Stored session | Redacted `surf_sessions` database row with source links | `a6-stored-session.png` |
+
+These screenshots must come from the configured running application rather than test doubles. Credentials, OAuth identifiers, personal journal text, and unrelated user data should be redacted before submission.
 
 ## Design Decisions
 
@@ -763,6 +892,8 @@ Capture these from the configured A6 branch after running `flask --app app upgra
 - The demo catalog includes only 12 reviewed Southern California records and is not yet an authoritative or complete surf-spot dataset.
 
 ## Future Work
+
+After deployment, Breakline can improve by connecting recommendation exposure, user choice, and observed session outcomes. The priority is to evaluate usefulness without silently expanding data collection: new telemetry should be opt-in where appropriate, purpose-limited, owner-visible, and covered by retention/deletion controls. With enough high-quality feedback, the application could tune deterministic thresholds, calibrate AI confidence, and personalize recommendations while continuing to show the evidence behind each result.
 
 - Add result-impression telemetry, dwell time, favorites, and explicit feedback.
 - Add semantic search and embeddings for surf-spot aliases, synonyms, and misspellings.
