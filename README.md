@@ -3,7 +3,7 @@
 - **Application name:** Breakline Surf Forecasts
 - **Student:** Brian Thoms
 - **Course:** IT 401
-- **Assignment:** A5 — Expanding the Web Intelligence Application with Intelligence Generation
+- **Assignment:** A6 — Hourly Decision Support and Surf Session Portfolio
 
 ## Project Overview
 
@@ -15,24 +15,67 @@ Authenticated users receive a private forecast history. A4 search improves the o
 
 A5 adds a retrieval-augmented classification and summarization feature. After a successful lookup, Breakline uses the saved `SurfForecast` row and that beach's cached Wikipedia summary to produce a validated JSON outlook: a fixed `Flat`, `Poor`, `Fair`, `Good`, or `Epic` rating; a 2–3 sentence summary; numeric confidence; and a list of missing information. The rating fills the forecast card's former “Hourly marine outlook” placeholder, while the explanation and provenance appear directly below it.
 
-The hourly response is also retained for the current request instead of discarding every unselected hour. Breakline compares those already-retrieved hours locally—without another APIFreaks call—using a transparent 0–100 rule score for swell size, swell period, wind-wave chop relative to swell, and data completeness. It recommends up to three alternatives within the location's approximate civil-twilight window and gives a plain-language reason for every factor while keeping A5's AI rating as the primary outlook.
+For A6, the hourly response is retained for the current request instead of discarding every unselected hour. Breakline compares those already-retrieved hours locally—without another APIFreaks call—using a transparent 0–100 rule score for swell size, swell period, wind-wave chop relative to swell, and data completeness. It recommends up to three alternatives within the location's approximate civil-twilight window and gives a plain-language reason for every factor while keeping A5's AI rating as the primary outlook.
 
-## A5 Deliverable Map
+A6 also adds a persistent surf-session portfolio. An authenticated user can turn a forecast into a planned session, choose the intended local paddle-out date and time, and later record whether the session was planned, completed, or cancelled. A 1–5 session rating and journal notes create a durable record that can support future personal analytics and recommendations.
+
+## A6 Deliverable Map
 
 | Assignment requirement | Project evidence |
 |---|---|
-| New A5 branch | `profthoms-it401-a5` |
-| Extend the A4 application | Existing Flask, SQLAlchemy, MySQL, search, filtering, ranking, and history workflows remain in place. |
-| Intelligent capability | Classification plus summarization in `services/intelligence_service.py`; rendered in `templates/_forecast_report.html`. |
-| Retrieval-augmented workflow | `routes/main.py` persists/retrieves the forecast and Wikipedia cache before building model context. The diagram below documents the sequence. |
-| Prompt construction | Versioned system instructions and user/context organization in `services/intelligence_prompts.py`. |
-| Structured output | JSON-only schema with `rating`, `summary`, `confidence`, and `missing_info`. |
-| Output validation | Strict parser and allow lists in `services/intelligence_validator.py`; invalid output is neither displayed nor stored. |
-| Generated-intelligence storage | `ForecastIntelligence` stores output, model, prompt version, generation time, source-record IDs, user request, and a context hash. |
-| Reliability | Safe handling for missing key/context, rate limits, timeouts, provider/JSON failures, invalid output, and database errors. |
+| New A6 branch | `profthoms-it401-a6` |
+| Extend the A5 application | Existing forecast retrieval, authenticated search/history, feedback, and generated AI outlook remain integrated. |
+| No-extra-call alternatives | `MarineWeatherService` retains the normalized daily hourly array already returned by APIFreaks. |
+| Explainable decision support | `services/hourly_scoring.py` produces a 0–100 score plus four named factors and plain-language reasons. |
+| Practical recommendation guardrail | Alternatives are limited to approximate civil-twilight hours calculated from forecast date and coordinates. |
+| Primary AI signal preserved | A5's validated AI rating remains in the main forecast card; the rule score is labeled as an hourly comparison. |
+| Persistent session planning | `SurfSession` stores planned local date/time, status, rating, notes, source forecast links, and a spot snapshot. |
+| Private portfolio | Owner-scoped routes and repository queries render and update the signed-in user's journal from the profile. |
+| Location correctness | Selection-version checks prevent a late geolocation response from overwriting a newer map click or marker drag. |
+| Database upgrade | `flask --app app upgrade-db` creates `surf_sessions` through the existing idempotent `db.create_all()` workflow. |
 | Application organization | Models, prompts, validation, HTTP provider client, orchestration, and persistence are separated by responsibility. |
 | Automated evaluation | Intelligence, catalog, forecast, authentication, retrieval, hourly comparison, and surf-journal coverage; complete suite: 59 passing tests. |
-| README and PDF evidence | This README contains every required A5 discussion. The screenshot/PDF capture checklist below identifies the live evidence still to capture after configuring the real services. |
+| README evidence | This README documents A6 behavior, scoring, persistence, safeguards, validation, limitations, and live screenshot targets. |
+
+## A6 Hourly Decision Support
+
+### Reusing the existing API response
+
+APIFreaks already returns every hourly record for the requested date. `MarineWeatherService` now normalizes the complete list into `hourly_conditions` while preserving the selected hour in `conditions` for backward compatibility. The route sends the complete list to the local comparison service, so recommending “a better window at 7 AM” does not create another weather-provider request.
+
+### Explainable scoring
+
+Each hour can earn 100 points across four equally visible factors:
+
+| Factor | Maximum | Rule intent |
+|---|---:|---|
+| Swell size | 25 | Rewards a broadly surfable swell range while treating very small or very large surf more cautiously. |
+| Swell period | 25 | Rewards longer-period energy and identifies short, weaker periods. |
+| Wave cleanliness | 25 | Compares wind-wave height with swell height; less relative chop scores higher. |
+| Data completeness | 25 | Reports how many of the four comparison measurements are present. |
+
+The thresholds are deterministic and every factor includes its points and a plain-language reason. They are intentionally separate from the AI classification: the AI rating remains the overall outlook, while this rule score ranks hours within the same provider response.
+
+### Daylight and location safeguards
+
+Recommendations exclude overnight hours. A dependency-free solar calculation estimates civil dawn and dusk from the forecast date, latitude, and longitude; when those inputs are unavailable, the conservative fallback is 5 AM through 8 PM. A nighttime hour remains visible if the user explicitly requested it, but it cannot become a recommended alternative.
+
+The map also uses a monotonically increasing selection version. Clicking the map, dragging the marker, or manually changing coordinates invalidates pending geolocation, reverse-geocoding, and surf-break requests. Stale location labels are cleared immediately so an older “Use my current location” callback cannot replace a newer explicit map choice.
+
+## A6 Surf Session Portfolio
+
+```mermaid
+flowchart LR
+    F[Authenticated forecast] --> P[Choose planned local date and time]
+    P --> S[(surf_sessions)]
+    S --> J[Profile session portfolio]
+    J --> U[Update schedule and status]
+    J --> N[Add 1–5 rating and journal notes]
+    U --> S
+    N --> S
+```
+
+Planning a session is distinct from requesting a forecast. The session snapshots the displayed spot name and planned local date/time, then optionally links back to the source forecast request, forecast row, and normalized beach. Replanning the same forecast request updates its one associated session instead of creating accidental duplicates. Journal reads and writes always include the authenticated user's ID; another user's session returns `404`.
 
 ## Intelligence Generation
 
@@ -262,7 +305,7 @@ erDiagram
     FORECAST_REQUESTS o|--o{ HISTORY_SEARCH_INTERACTIONS : opened_by
 ```
 
-`db.create_all()` creates new tables. The idempotent `init-db` and `upgrade-db` commands also apply the supported hourly-forecast schema upgrade. The project does not yet use Alembic/Flask-Migrate.
+`db.create_all()` creates new tables, including `surf_sessions`. The idempotent `init-db` and `upgrade-db` commands also apply the supported hourly-forecast schema upgrade. The project does not yet use Alembic/Flask-Migrate.
 
 ## Current Features
 
@@ -278,9 +321,10 @@ erDiagram
 - **Pagination:** 10 results per page with counts, numbered pages, previous/next links, and automatic return to the results table.
 - **Search telemetry:** Search criteria, result counts, pagination activity, and result views.
 - **Forecast feedback:** Signed-in users can submit or update a 1–5 usefulness rating and optional comments for each saved forecast request; ratings are visible in forecast history.
+- **Hourly alternatives:** Reuses the daily APIFreaks response to rank up to three civil-twilight windows without another provider call, with four visible scoring factors per hour.
 - **Surf-session portfolio:** Signed-in users can turn a forecast into a planned session, choose a local paddle-out date/time, and maintain status, a 1–5 session rating, and journal notes from their profile.
 - **Google sign-in:** OpenID Connect authorization-code flow with verified email and no stored Google access/refresh tokens.
-- **Location features:** Interactive map, browser geolocation, separate current/forecast markers, nearest named beach or surf break, readable city/state/country, and distance display.
+- **Location features:** Interactive map, browser geolocation, separate current/forecast markers, nearest named beach or surf break, readable city/state/country, distance display, and stale-request protection so the latest map selection wins.
 - **Wikipedia information:** Cached, attributed, plain-text API summaries with revision and license provenance.
 - **Intelligence generation:** Grounded `Flat`/`Poor`/`Fair`/`Good`/`Epic` classification, 2–3 sentence summary, confidence, and missing-information list.
 - **AI validation and reuse:** Strict structured-output validation, stored provenance, and context-hash caching prevent invalid display and repeated calls for unchanged inputs.
@@ -319,6 +363,7 @@ erDiagram
 │   ├── intelligence_repository.py # Generated-output persistence and reuse
 │   ├── intelligence_service.py    # Retrieved-context construction/orchestration
 │   ├── intelligence_validator.py  # Strict structured-output validation
+│   ├── hourly_scoring.py          # Explainable hourly ranking and daylight filter
 │   ├── surf_session_repository.py # Owned session portfolio queries
 │   ├── marine_weather_service.py  # APIFreaks client and normalization
 │   ├── request_history_repository.py # Search SQL, distance, pagination
@@ -481,7 +526,7 @@ For a fresh configured database:
 flask --app app init-db
 ```
 
-For an existing Breakline database, including the A4 telemetry tables:
+For an existing Breakline database, including creation of the A6 `surf_sessions` table:
 
 ```bash
 flask --app app upgrade-db
@@ -582,6 +627,9 @@ AI_SERVICE_MODEL=gemini-3.8-flash
 | Invalid AI JSON/schema/value | Output is rejected before display/storage and the failure is logged without leaking raw provider content. |
 | AI persistence failure | Transaction is rolled back; validated output can remain visible for that response with a not-stored notice. |
 | Unauthorized history access | Owner-scoped queries return `404` rather than exposing another user's record. |
+| Invalid session schedule/status/rating/notes | Rejects malformed local date/time, non-allow-listed status, ratings outside 1–5, and notes over 2,000 characters. |
+| Unauthorized session access | Owner-scoped session queries return `404`; another user cannot read or update the journal record. |
+| Session persistence failure | Rolls back the transaction, logs the failure, and shows a retry-safe message without losing the forecast page. |
 
 ## Search Evaluation
 
@@ -653,7 +701,20 @@ Capture these from the configured running application and database, then place t
 | Error handling | Forecast still visible with the AI unavailable state (for example, temporarily unset the AI key) | `a5-error-handling.png` |
 | Stored generated result | MySQL row showing rating, confidence, model, prompt version, source IDs, context hash, and generation timestamp; redact credentials and personal data | `a5-stored-result.png` |
 
-The final PDF should pair those screenshots with short captions and include: the retrieval-augmented diagram; prompt organization; selected model/API/environment variables; validation/fallback rules; generated-output example; `forecast_intelligence` schema; current features through A5; design decisions; limitations; and A6 future work. This README supplies the text and diagrams, while the screenshots must come from the live configured environment.
+The A5 PDF should pair those screenshots with short captions and include: the retrieval-augmented diagram; prompt organization; selected model/API/environment variables; validation/fallback rules; generated-output example; `forecast_intelligence` schema; current features through A5; design decisions; and limitations.
+
+### A6 decision-support and portfolio checklist
+
+Capture these from the configured A6 branch after running `flask --app app upgrade-db`:
+
+| Required A6 evidence | What the image should prove | Target filename |
+|---|---|---|
+| Hourly alternatives | Requested hour plus daylight-filtered alternatives and scores | `a6-hourly-alternatives.png` |
+| Explainable factors | Swell size, period, cleanliness, and completeness reasons | `a6-scoring-factors.png` |
+| Session planner | Forecast-linked local date/time controls and journal action | `a6-session-planner.png` |
+| Session portfolio | Planned/completed totals and saved sessions on the profile | `a6-session-portfolio.png` |
+| Journal entry | Completed status, 1–5 session rating, and notes | `a6-journal-entry.png` |
+| Stored session | Redacted `surf_sessions` database row with source links | `a6-stored-session.png` |
 
 ## Design Decisions
 
@@ -669,6 +730,11 @@ The final PDF should pair those screenshots with short captions and include: the
 - **Prompt/model provenance:** Storing the prompt version, model, source IDs, request, and context hash makes results auditable and supports later comparisons or regeneration.
 - **Cache key:** Forecast content, Wikipedia context, model, and prompt version determine reuse. A source-content change creates a new generation while retaining earlier evaluation evidence.
 - **Catalog-first spot lookup:** A selected catalog ID is resolved again on the server and its stored coordinates override typed text. Free-form coastal-city lookup remains available when no catalog result is selected.
+- **No-extra-call comparison:** Hourly alternatives reuse the normalized APIFreaks array already returned for the requested date rather than increasing provider traffic and cost.
+- **Explainability over opaque ranking:** Four equal 25-point factors make every comparison score reproducible and visible while leaving the A5 AI rating as the main signal.
+- **Civil-twilight filter:** A local solar calculation prevents technically strong midnight conditions from becoming impractical surf recommendations.
+- **Session record separate from forecast history:** A forecast request records information retrieval; `SurfSession` records user intent and observed experience. Keeping them separate supports later portfolio analysis without treating every lookup as a surf session.
+- **Spot snapshot plus optional source links:** The session retains a readable spot name even if a source record is later removed, while nullable foreign keys preserve provenance when available.
 
 ## Known Limitations
 
@@ -684,8 +750,12 @@ The final PDF should pair those screenshots with short captions and include: the
 - OpenStreetMap and Wikipedia coverage varies by region.
 - There is no user-facing favorite, delete, profile-edit, or account-deletion interface.
 - The project uses idempotent schema commands rather than a versioned migration framework.
+- Only the selected hourly forecast is persisted; the other APIFreaks hours are retained for the current response and scored in memory. Longitudinal analysis of full forecast ranges would require batch or snapshot storage.
 - The rating is based on general retrieved marine measurements; it does not yet learn spot-specific ideal direction, period, tide, or skill-level preferences.
 - Hourly alternatives use general thresholds, not spot-specific swell exposure, tide, wind direction, hazards, or surfer ability; their score is a relative planning aid rather than a safety rating.
+- Civil-twilight boundaries currently use a longitude-derived standard-time approximation rather than an IANA timezone, so daylight-saving transitions can conservatively omit a marginal twilight hour.
+- Session dates and times are stored as local-to-the-spot planning values without an IANA timezone identifier.
+- The portfolio currently supports editing but not deleting sessions or attaching photos, boards, GPS tracks, or observed condition measurements.
 - APIFreaks does not currently provide every input surfers may expect in this workflow, especially wind speed/direction, tide, water quality, crowds, and live hazards. The model must report important omissions rather than invent them.
 - Confidence is model-reported and schema-validated, not statistically calibrated against observed surf conditions.
 - JSON response mode improves formatting but does not prove factual correctness; grounding rules and visible source measurements remain necessary.
@@ -697,13 +767,15 @@ The final PDF should pair those screenshots with short captions and include: the
 - Add result-impression telemetry, dwell time, favorites, and explicit feedback.
 - Add semantic search and embeddings for surf-spot aliases, synonyms, and misspellings.
 - Add personalized and engagement-informed ranking with privacy controls.
-- Recommend beaches, forecast windows, and Wikipedia content from prior searches and interactions.
+- Recommend beaches and forecast windows from completed sessions, journal ratings, prior searches, and interactions.
 - Add query suggestions, autocomplete, recent-search shortcuts, and zero-result recovery.
 - Evaluate MySQL full-text search, trigram/fuzzy search, and nearest-first geographic ordering.
 - Add retrieval-augmented generation for cited surf-spot and safety summaries.
 - Add Alembic/Flask-Migrate, telemetry retention/deletion policies, and an account-deletion workflow.
 - Build a larger labeled search benchmark and monitor precision, recall, click-through rate, and zero-result rate over time.
-- For A6 decision support, combine the validated outlook with user skill level, preferred wave size, spot-specific orientation, tide, wind, hazards, travel distance, and explicit user feedback to recommend whether and when to surf.
+- Extend A6 decision support with user skill level, preferred wave size, spot-specific orientation, tide, wind, hazards, travel distance, and explicit session feedback.
+- Store provider response batches or immutable hourly snapshots for longitudinal forecast-quality analysis.
+- Add session deletion, photos, board/equipment tracking, observed conditions, and portfolio exports.
 - Evaluate classification accuracy against expert labels and observed conditions; calibrate confidence and compare prompt/model versions using stored provenance.
 - Add a deliberate regenerate/review workflow, retention rules, and an admin-safe audit view for generated results.
 
